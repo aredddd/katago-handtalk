@@ -668,23 +668,63 @@
         document.getElementById("recognize-auto-status").textContent =
             "✅ 专用围棋 CNN 识别（点击棋子可修正）";
 
-        // 画识别结果到 canvas
+        // 初始化 canvas 尺寸和事件（每次新识别重新计算一次尺寸）
+        initRecognizeCanvas();
         drawRecognizeCanvas(recognizedBoard);
     }
 
-    /** 在识别结果的小 canvas 上画棋盘 */
+    /** 识别预览 canvas 的固定尺寸（首次初始化后不变，防止缩小 bug） */
+    let _recognizeCanvasSize = 0;
+
+    /** 初始化识别预览 canvas 的尺寸和交互事件（仅调用一次） */
+    function initRecognizeCanvas() {
+        const canvas = document.getElementById("recognize-board-canvas");
+
+        // 计算一次尺寸并锁定，后续重绘不再重新计算
+        const parentW = canvas.parentElement.clientWidth || 380;
+        _recognizeCanvasSize = Math.min(parentW - 10, 420);
+        canvas.width = _recognizeCanvasSize;
+        canvas.height = _recognizeCanvasSize;
+        canvas.style.width = _recognizeCanvasSize + "px";
+        canvas.style.height = _recognizeCanvasSize + "px";
+
+        // 移除旧的事件监听（如有）
+        if (canvas._recognizeClickHandler) {
+            canvas.removeEventListener("click", canvas._recognizeClickHandler);
+        }
+
+        // 使用 click 事件（兼容桌面和移动端），不拦截浏览器手势
+        // 用 offsetX/offsetY 获取元素内坐标，对浏览器缩放免疫
+        canvas._recognizeClickHandler = (e) => {
+            if (!recognizedBoard) return;
+            const size = recognizedBoard.length;
+            const canvasSize = _recognizeCanvasSize;
+            const padding = canvasSize * 0.05;
+            const cellSize = (canvasSize - 2 * padding) / (size - 1);
+
+            // offsetX/offsetY 是相对于元素的 CSS 坐标
+            // 但浏览器缩放时 offsetX 会按缩放比例变化，需要归一化
+            const rect = canvas.getBoundingClientRect();
+            const mx = (e.clientX - rect.left) / rect.width * canvasSize;
+            const my = (e.clientY - rect.top) / rect.height * canvasSize;
+
+            const col = Math.round((mx - padding) / cellSize);
+            const row = Math.round((my - padding) / cellSize);
+            if (row >= 0 && row < size && col >= 0 && col < size) {
+                // 循环切换: 空→黑→白→空
+                recognizedBoard[row][col] = (recognizedBoard[row][col] + 1) % 3;
+                drawRecognizeCanvas(recognizedBoard);
+            }
+        };
+        canvas.addEventListener("click", canvas._recognizeClickHandler);
+    }
+
+    /** 在识别结果的 canvas 上画棋盘（纯绘制，不重新计算尺寸） */
     function drawRecognizeCanvas(boardData) {
         const canvas = document.getElementById("recognize-board-canvas");
         const ctx = canvas.getContext("2d");
         const size = boardData.length;
-
-        // 根据弹窗宽度自适应
-        const parentW = canvas.parentElement.clientWidth || 380;
-        const canvasSize = Math.min(parentW - 10, 420);
-        canvas.width = canvasSize;
-        canvas.height = canvasSize;
-        canvas.style.width = canvasSize + "px";
-        canvas.style.height = canvasSize + "px";
+        const canvasSize = _recognizeCanvasSize;
 
         const padding = canvasSize * 0.05;
         const cellSize = (canvasSize - 2 * padding) / (size - 1);
@@ -747,33 +787,6 @@
                 }
             }
         }
-
-        // 点击修正
-        canvas._recognizeClickHandler && canvas.removeEventListener("click", canvas._recognizeClickHandler);
-        canvas._recognizeTouchHandler && canvas.removeEventListener("touchend", canvas._recognizeTouchHandler);
-
-        const handler = (clientX, clientY) => {
-            const rect = canvas.getBoundingClientRect();
-            const mx = clientX - rect.left;
-            const my = clientY - rect.top;
-            const col = Math.round((mx - padding) / cellSize);
-            const row = Math.round((my - padding) / cellSize);
-            if (row >= 0 && row < size && col >= 0 && col < size) {
-                // 循环切换: 空→黑→白→空
-                recognizedBoard[row][col] = (recognizedBoard[row][col] + 1) % 3;
-                drawRecognizeCanvas(recognizedBoard);
-            }
-        };
-
-        canvas._recognizeClickHandler = (e) => handler(e.clientX, e.clientY);
-        canvas.addEventListener("click", canvas._recognizeClickHandler);
-
-        canvas._recognizeTouchHandler = (e) => {
-            e.preventDefault();
-            const t = e.changedTouches[0];
-            handler(t.clientX, t.clientY);
-        };
-        canvas.addEventListener("touchend", canvas._recognizeTouchHandler, { passive: false });
     }
 
     /** 将识别结果加载到主棋盘 */

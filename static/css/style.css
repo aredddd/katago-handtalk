@@ -115,8 +115,8 @@ body {
 #goboard {
     cursor: pointer;
     border-radius: 4px;
-    touch-action: none;
     display: block;
+    /* touch-action 使用默认值，缩放由浏览器原生手势处理 */
 }
 
 /* ============== KaTrain 风格导航条 ============== */
@@ -823,7 +823,7 @@ body {
     border-radius: 4px;
     cursor: pointer;
     max-width: 100%;
-    touch-action: none;
+    /* touch-action 使用默认值（auto），允许浏览器二指缩放手势 */
 }
 
 #recognize-info {

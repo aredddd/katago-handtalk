@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep -E \"\\\\.\\(py|html|js|css|txt|md|cfg|bat\\)$\")",
+      "WebSearch",
+      "Bash(pip install *)",
+      "Bash(Out-File -FilePath \"C:\\\\Users\\\\zzw88\\\\AppData\\\\Local\\\\Temp\\\\ch4.txt\" -Encoding utf8)",
+      "WebFetch(domain:martinfowler.com)",
+      "Bash(pip show *)",
+      "PowerShell(python \"C:\\\\Users\\\\zzw88\\\\AppData\\\\Local\\\\Temp\\\\make_ppt.py\" 2>&1)",
+      "PowerShell(Start-Process \"C:\\\\Users\\\\zzw88\\\\Desktop\\\\�½��ļ���\\\\CircuitBreaker_MGL802.pptx\")",
+      "PowerShell(python \"C:\\\\Users\\\\zzw88\\\\AppData\\\\Local\\\\Temp\\\\make_ppt_v2.py\")",
+      "PowerShell(Start-Process \"C:\\\\Users\\\\zzw88\\\\Desktop\\\\�½��ļ���\\\\CircuitBreaker_MGL802_v2.pptx\")",
+      "PowerShell(python \"C:\\\\Users\\\\zzw88\\\\AppData\\\\Local\\\\Temp\\\\make_ppt_v3.py\")",
+      "PowerShell(Start-Process \"C:\\\\Users\\\\zzw88\\\\Desktop\\\\�½��ļ���\\\\CircuitBreaker_MGL802_v3.pptx\")",
+      "PowerShell(python \"C:\\\\Users\\\\zzw88\\\\AppData\\\\Local\\\\Temp\\\\make_ppt_v4.py\")",
+      "PowerShell(Start-Process \"C:\\\\Users\\\\zzw88\\\\Desktop\\\\�½��ļ���\\\\CircuitBreaker_MGL802_v4.pptx\")",
+      "PowerShell(Start-Process \"C:\\\\Users\\\\zzw88\\\\Desktop\\\\�½��ļ���\\\\CircuitBreaker_MGL802_v5.pptx\")"
+    ]
+  }
+}

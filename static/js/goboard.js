@@ -40,11 +40,6 @@ class GoBoard {
         this.onMoveCallback = null;
         this.isMobile = window.innerWidth <= 768;
 
-        // 手机端缩放/平移
-        this.zoomScale = 1.0;
-        this.panX = 0;
-        this.panY = 0;
-        this._pinchState = null; // { dist, cx, cy, startScale, startPanX, startPanY }
         this._touchMovedSignificantly = false; // 区分拖拽和点击
 
         // 预加载音效（避免每次落子都从服务器请求）
@@ -81,9 +76,6 @@ class GoBoard {
         this.ownershipData = null;
         this.initialStones = null;
         this.pendingMovePos = null;
-        this.zoomScale = 1.0;
-        this.panX = 0;
-        this.panY = 0;
         this._initSize();
         this.draw();
         this._fireNavigate();
@@ -133,24 +125,16 @@ class GoBoard {
 
     // ============== 坐标转换 ==============
 
-    /** 将触摸/鼠标的屏幕坐标转为 canvas 逻辑坐标（考虑 zoom+pan） */
+    /** 将触摸/鼠标的屏幕坐标转为 canvas 逻辑坐标（归一化，兼容浏览器缩放） */
     _screenToCanvas(clientX, clientY) {
         const rect = this.canvas.getBoundingClientRect();
-        const sx = clientX - rect.left;
-        const sy = clientY - rect.top;
-        // 逆变换: canvas坐标 = (screen坐标 - pan) / scale
+        const dpr = window.devicePixelRatio || 1;
+        const w = this.canvas.width / dpr;
+        const h = this.canvas.height / dpr;
         return {
-            cx: (sx - this.panX) / this.zoomScale,
-            cy: (sy - this.panY) / this.zoomScale,
+            cx: (clientX - rect.left) / rect.width * w,
+            cy: (clientY - rect.top) / rect.height * h,
         };
-    }
-
-    /** 重置缩放 */
-    resetZoom() {
-        this.zoomScale = 1.0;
-        this.panX = 0;
-        this.panY = 0;
-        this.draw();
     }
 
     /** 棋盘坐标 -> 像素坐标 */
@@ -437,13 +421,6 @@ class GoBoard {
         // 重置变换，清空全屏
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
         ctx.clearRect(0, 0, w, h);
-
-        // 应用 zoom + pan 变换
-        ctx.setTransform(
-            dpr * this.zoomScale, 0,
-            0, dpr * this.zoomScale,
-            dpr * this.panX, dpr * this.panY
-        );
 
         this._drawBoardBackground(w, h);
         this._drawGrid();
@@ -990,127 +967,42 @@ class GoBoard {
             }
         });
 
-        // ============== 触摸手势（缩放 + 平移 + 落子） ==============
+        // ============== 触摸手势（两步确认落子） ==============
+        // 缩放由浏览器原生二指手势处理，这里只处理单指点击落子
 
-        let singleTouchStart = null; // 记录单指触摸起始位置
-        let lastTapTime = 0; // 双击检测
+        let singleTouchStart = null;
 
         this.canvas.addEventListener("touchstart", (e) => {
-            if (e.touches.length === 2) {
-                // 两指：开始 pinch/pan
-                e.preventDefault();
-                const t1 = e.touches[0], t2 = e.touches[1];
-                const dist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
-                const midX = (t1.clientX + t2.clientX) / 2;
-                const midY = (t1.clientY + t2.clientY) / 2;
-                const rect = this.canvas.getBoundingClientRect();
-                this._pinchState = {
-                    dist,
-                    midX: midX - rect.left,
-                    midY: midY - rect.top,
-                    startScale: this.zoomScale,
-                    startPanX: this.panX,
-                    startPanY: this.panY,
-                };
-                this._touchMovedSignificantly = true; // 取消本次单指点击
-                singleTouchStart = null;
-            } else if (e.touches.length === 1) {
-                // 单指
+            if (e.touches.length === 1) {
                 this._touchMovedSignificantly = false;
                 singleTouchStart = {
                     x: e.touches[0].clientX,
                     y: e.touches[0].clientY,
-                    time: Date.now(),
                 };
-
-                // 如果已经缩放，单指可拖动平移
-                if (this.zoomScale > 1.05) {
-                    this._panStart = {
-                        panX: this.panX,
-                        panY: this.panY,
-                        touchX: e.touches[0].clientX,
-                        touchY: e.touches[0].clientY,
-                    };
-                }
             }
-        }, { passive: false });
+        }, { passive: true });
 
         this.canvas.addEventListener("touchmove", (e) => {
-            if (e.touches.length === 2 && this._pinchState) {
-                // 两指 pinch
-                e.preventDefault();
-                const t1 = e.touches[0], t2 = e.touches[1];
-                const newDist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
-                const rect = this.canvas.getBoundingClientRect();
-                const midX = (t1.clientX + t2.clientX) / 2 - rect.left;
-                const midY = (t1.clientY + t2.clientY) / 2 - rect.top;
-
-                const ratio = newDist / this._pinchState.dist;
-                let newScale = this._pinchState.startScale * ratio;
-                newScale = Math.max(1.0, Math.min(newScale, 3.5)); // 限制 1x ~ 3.5x
-
-                // 以两指中点为原点缩放
-                const focusX = (this._pinchState.midX - this._pinchState.startPanX) / this._pinchState.startScale;
-                const focusY = (this._pinchState.midY - this._pinchState.startPanY) / this._pinchState.startScale;
-                this.panX = midX - focusX * newScale;
-                this.panY = midY - focusY * newScale;
-                this.zoomScale = newScale;
-
-                this._clampPan();
-                this.draw();
-            } else if (e.touches.length === 1 && this._panStart && this.zoomScale > 1.05) {
-                // 单指拖动平移（仅缩放状态下）
-                e.preventDefault();
-                const dx = e.touches[0].clientX - this._panStart.touchX;
-                const dy = e.touches[0].clientY - this._panStart.touchY;
-                if (Math.abs(dx) > 5 || Math.abs(dy) > 5) {
-                    this._touchMovedSignificantly = true;
-                }
-                this.panX = this._panStart.panX + dx;
-                this.panY = this._panStart.panY + dy;
-                this._clampPan();
-                this.draw();
-            } else if (e.touches.length === 1 && singleTouchStart) {
-                // 未缩放下的单指移动，检测是否抑制点击
+            if (e.touches.length === 1 && singleTouchStart) {
                 const dx = e.touches[0].clientX - singleTouchStart.x;
                 const dy = e.touches[0].clientY - singleTouchStart.y;
                 if (Math.abs(dx) > 10 || Math.abs(dy) > 10) {
                     this._touchMovedSignificantly = true;
                 }
             }
-        }, { passive: false });
+        }, { passive: true });
 
         this.canvas.addEventListener("touchend", (e) => {
-            // pinch 结束
-            if (e.touches.length < 2) {
-                this._pinchState = null;
-            }
-            this._panStart = null;
-
-            // 如果变回接近1x，自动復位
-            if (this.zoomScale < 1.05) {
-                this.resetZoom();
-            }
-
-            // 如果手指明显移动过（pinch 或 pan），不算点击
+            // 如果手指明显移动过（滚动/缩放），不算点击
             if (this._touchMovedSignificantly) {
                 this._touchMovedSignificantly = false;
-                e.preventDefault();
                 return;
             }
 
-            // === 单指点击：两步确认落子 ===
+            // 多指操作结束后不处理
+            if (e.changedTouches.length !== 1 || e.touches.length > 0) return;
+
             e.preventDefault();
-
-            // 双击检测：300ms内连续两次点击→重置缩放
-            const now = Date.now();
-            if (now - lastTapTime < 300 && this.zoomScale > 1.05) {
-                lastTapTime = 0;
-                this.resetZoom();
-                return;
-            }
-            lastTapTime = now;
-
             const touch = e.changedTouches[0];
             const { cx, cy } = this._screenToCanvas(touch.clientX, touch.clientY);
 
@@ -1142,17 +1034,6 @@ class GoBoard {
             this.pendingMovePos = { x: pos.x, y: pos.y };
             this.draw();
         }, { passive: false });
-    }
-
-    /** 限制平移范围，不让棋盘拖出视口 */
-    _clampPan() {
-        const bw = this.canvas.clientWidth;
-        const bh = this.canvas.clientHeight;
-        const sw = bw * this.zoomScale;
-        const sh = bh * this.zoomScale;
-        // 不让左/上边超过 canvas 右/下边界，也不让右/下边超过左/上边界
-        this.panX = Math.min(0, Math.max(this.panX, bw - sw));
-        this.panY = Math.min(0, Math.max(this.panY, bh - sh));
     }
 
     /** 预加载所有音效文件到内存 */
