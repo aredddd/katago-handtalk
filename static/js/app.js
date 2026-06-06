@@ -169,19 +169,23 @@
 
     const TOKEN_KEY    = "jwt_token";
     const USERNAME_KEY = "jwt_username";
+    const ADMIN_KEY    = "jwt_is_admin";
 
     function getToken()    { return localStorage.getItem(TOKEN_KEY); }
     function getUsername() { return localStorage.getItem(USERNAME_KEY); }
+    function isAdmin()     { return localStorage.getItem(ADMIN_KEY) === "1"; }
 
-    function saveAuth(token, username) {
+    function saveAuth(token, username, admin) {
         localStorage.setItem(TOKEN_KEY, token);
         localStorage.setItem(USERNAME_KEY, username);
+        localStorage.setItem(ADMIN_KEY, admin ? "1" : "0");
         _updateAuthArea();
     }
 
     function clearAuth() {
         localStorage.removeItem(TOKEN_KEY);
         localStorage.removeItem(USERNAME_KEY);
+        localStorage.removeItem(ADMIN_KEY);
         _updateAuthArea();
     }
 
@@ -200,12 +204,14 @@
         const area = document.getElementById("auth-area");
         if (!area) return;
         if (isLoggedIn()) {
-            area.innerHTML = `
-                <span id="auth-username-display" class="auth-username">${getUsername()}</span>
-                <button id="btn-logout" class="btn-auth btn-auth-out">${t("signOut")}</button>`;
+            const nameEl = isAdmin()
+                ? `<a href="/admin" id="auth-username-display" class="auth-username auth-admin-link">${getUsername()} ⚙</a>`
+                : `<span id="auth-username-display" class="auth-username">${getUsername()}</span>`;
+            area.innerHTML = nameEl +
+                `<button id="btn-logout" class="btn-auth btn-auth-out">${t("signOut")}</button>`;
             document.getElementById("btn-logout").addEventListener("click", () => {
                 clearAuth();
-                setStatus("online", t("engineReady"));
+                showAuthModal(true); // mandatory — cannot use app without login
             });
         } else {
             area.innerHTML = `<button id="btn-show-login" class="btn-auth">${t("signIn")}</button>`;
@@ -215,11 +221,16 @@
 
     // ── Auth modal ────────────────────────────────────────────────────────────
 
-    let _authMode = "login"; // "login" | "register"
+    let _authMode     = "login"; // "login" | "register"
+    let _authRequired = false;   // when true: modal cannot be dismissed
 
-    function showAuthModal() {
-        _authMode = "login";
+    function showAuthModal(required = true) {
+        _authRequired = required;
+        _authMode     = "login";
         _renderAuthModal();
+        // Hide the close button when login is mandatory
+        document.getElementById("auth-modal-close").style.display =
+            required ? "none" : "block";
         document.getElementById("auth-modal").style.display = "flex";
         document.getElementById("auth-username-input").value = "";
         document.getElementById("auth-password-input").value = "";
@@ -228,6 +239,7 @@
     }
 
     function hideAuthModal() {
+        if (_authRequired) return; // cannot dismiss a required modal
         document.getElementById("auth-modal").style.display = "none";
     }
 
@@ -256,7 +268,8 @@
             });
             const data = await res.json();
             if (res.ok) {
-                saveAuth(data.token, data.username);
+                saveAuth(data.token, data.username, data.is_admin);
+                _authRequired = false; // allow hideAuthModal to proceed
                 hideAuthModal();
                 // Trigger analysis now that we have a token
                 if (board && board.moves !== undefined) {
@@ -296,6 +309,8 @@
         bindRecognition();
 
         setStatus("offline", t("connecting"));
+        // Show mandatory login modal immediately if not authenticated
+        if (!isLoggedIn()) showAuthModal(true);
     });
 
     // ── WebSocket ─────────────────────────────────────────────────────────────
@@ -333,7 +348,7 @@
         socket.on(EVENTS.ERROR, (data) => {
             isThinking = false;
             if (data.code === 401) {
-                showAuthModal();
+                showAuthModal(true); // mandatory
                 return;
             }
             setStatus("offline", data.message || "Error");

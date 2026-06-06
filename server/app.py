@@ -20,7 +20,11 @@ from config import (
 )
 from events import Events
 from exceptions import EngineNotRunningError, EngineTimeoutError, EngineQueryError
-from auth import init_db, register_user, verify_user, create_token, require_auth
+from auth import (
+    init_db, register_user, verify_user, create_token, require_auth,
+    require_admin, delete_user, list_users, change_password,
+    get_setting, set_setting, decode_token, get_user_is_admin,
+)
 
 # ── Logging ──────────────────────────────────────────────────────────────────
 
@@ -91,7 +95,11 @@ def api_register():
     ok, msg = register_user(username, password)
     if ok:
         token = create_token(username)
-        return jsonify({"token": token, "username": username}), 201
+        return jsonify({
+            "token":    token,
+            "username": username,
+            "is_admin": get_user_is_admin(username),
+        }), 201
     return jsonify({"error": msg}), 400
 
 
@@ -103,9 +111,74 @@ def api_login():
     password = body.get("password", "")
     if verify_user(username, password):
         token = create_token(username)
-        return jsonify({"token": token, "username": username})
+        return jsonify({
+            "token":    token,
+            "username": username,
+            "is_admin": get_user_is_admin(username),
+        })
     return jsonify({"error": "Invalid username or password"}), 401
 
+
+# ── HTTP routes — admin panel ─────────────────────────────────────────────────
+
+@app.route("/admin")
+def admin_page():
+    """Serve the admin panel HTML."""
+    return send_from_directory(app.static_folder, "admin.html")
+
+
+@app.route("/api/admin/users", methods=["GET"])
+@require_admin
+def api_admin_list_users():
+    """List all users."""
+    return jsonify({"users": list_users()})
+
+
+@app.route("/api/admin/users/<username>", methods=["DELETE"])
+@require_admin
+def api_admin_delete_user(username):
+    """Delete a user account."""
+    ok, msg = delete_user(username)
+    if ok:
+        return jsonify({"message": msg})
+    return jsonify({"error": msg}), 400
+
+
+@app.route("/api/admin/settings", methods=["GET"])
+@require_admin
+def api_admin_get_settings():
+    """Return current admin-controlled settings."""
+    return jsonify({
+        "registration_open": get_setting("registration_open", "1") == "1",
+    })
+
+
+@app.route("/api/admin/settings", methods=["PATCH"])
+@require_admin
+def api_admin_update_settings():
+    """Update admin-controlled settings."""
+    body = request.get_json(silent=True) or {}
+    if "registration_open" in body:
+        set_setting("registration_open", "1" if body["registration_open"] else "0")
+        logger.info(f"Registration {'opened' if body['registration_open'] else 'closed'} by admin")
+    return jsonify({"message": "Settings updated"})
+
+
+@app.route("/api/admin/change-password", methods=["POST"])
+@require_admin
+def api_admin_change_password():
+    """Change the admin account password."""
+    body     = request.get_json(silent=True) or {}
+    old_pw   = body.get("old_password", "")
+    new_pw   = body.get("new_password", "")
+    username = decode_token(request.headers.get("Authorization", "")[7:])
+    ok, msg  = change_password(username, old_pw, new_pw)
+    if ok:
+        return jsonify({"message": msg})
+    return jsonify({"error": msg}), 400
+
+
+# ── HTTP routes — board recognition ──────────────────────────────────────────
 
 @app.route("/api/recognize", methods=["POST"])
 def api_recognize():

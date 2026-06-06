@@ -925,6 +925,8 @@ body {
     color: var(--accent-color);
     margin-right: 4px;
 }
+.auth-admin-link { text-decoration: none; }
+.auth-admin-link:hover { text-decoration: underline; }
 
 /* ── Auth modal ── */
 .auth-modal-content {
