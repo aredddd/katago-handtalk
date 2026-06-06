@@ -1,40 +1,45 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" id="html-root">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>KataGo Web - 围棋 AI</title>
+    <title>KataGo Web</title>
     <link rel="stylesheet" href="css/style.css">
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚫</text></svg>">
 </head>
 <body>
     <div id="app">
-        <!-- 顶部标题栏 -->
+        <!-- Header -->
         <header id="header">
             <h1>KataGo Web</h1>
             <div id="status-indicator">
                 <span id="engine-status" class="status-dot offline"></span>
-                <span id="engine-text">连接中...</span>
+                <span id="engine-text">…</span>
+            </div>
+            <div id="header-right">
+                <button id="btn-lang" class="btn-lang" title="Switch language">中/EN</button>
+                <div id="auth-area">
+                    <button id="btn-show-login" class="btn-auth">登录 / Sign in</button>
+                </div>
             </div>
         </header>
 
-        <!-- 主内容区 -->
+        <!-- Main content -->
         <main id="main-content">
-            <!-- 左侧：棋盘 + 导航条 -->
+            <!-- Left: board + navigation -->
             <div id="board-area">
                 <div id="board-container">
                     <canvas id="goboard"></canvas>
                 </div>
 
-                <!-- KaTrain 风格导航条 -->
                 <div id="move-nav">
                     <div id="nav-buttons">
-                        <button id="nav-start" title="跳到开头">⏮</button>
-                        <button id="nav-back10" title="后退10步">⏪</button>
-                        <button id="nav-back1" title="后退1步">◀</button>
-                        <button id="nav-forward1" title="前进1步">▶</button>
-                        <button id="nav-forward10" title="前进10步">⏩</button>
-                        <button id="nav-end" title="跳到最新">⏭</button>
+                        <button id="nav-start">⏮</button>
+                        <button id="nav-back10">⏪</button>
+                        <button id="nav-back1">◀</button>
+                        <button id="nav-forward1">▶</button>
+                        <button id="nav-forward10">⏩</button>
+                        <button id="nav-end">⏭</button>
                     </div>
                     <div id="nav-slider-row">
                         <span id="nav-move-num">0</span>
@@ -43,7 +48,7 @@
                     </div>
                 </div>
 
-                <!-- 胜率条（棋盘正下方） -->
+                <!-- Winrate strip -->
                 <div id="winrate-strip">
                     <span id="wr-black-label" class="wr-label">⚫ <span id="winrate-black">50.0%</span></span>
                     <div id="winrate-bar-container">
@@ -54,34 +59,36 @@
                 </div>
             </div>
 
-            <!-- 右侧：控制面板 -->
+            <!-- Right: control panel -->
             <div id="panel">
-                <!-- 模式与操作 -->
                 <div class="panel-section">
                     <div class="mode-buttons">
-                        <button class="mode-btn active" data-mode="free-play" title="自由摆谱，黑白交替">♟ 摆谱</button>
-                        <button class="mode-btn" data-mode="play-black" title="执黑对AI">⚫ 执黑</button>
-                        <button class="mode-btn" data-mode="play-white" title="执白对AI">⚪ 执白</button>
-                        <button class="mode-btn" data-mode="ai-vs-ai" title="AI自我对弈">🤖 AI对弈</button>
+                        <button class="mode-btn active" data-mode="free-play">♟ <span class="i18n" data-key="freePlay">摆谱</span></button>
+                        <button class="mode-btn" data-mode="play-black">⚫ <span class="i18n" data-key="playBlack">执黑</span></button>
+                        <button class="mode-btn" data-mode="play-white">⚪ <span class="i18n" data-key="playWhite">执白</span></button>
+                        <button class="mode-btn" data-mode="ai-vs-ai">🤖 <span class="i18n" data-key="aiVsAi">AI对弈</span></button>
                     </div>
                     <div class="action-buttons" style="margin-top:8px">
-                        <button id="btn-undo" title="悔棋">↩ 悔棋</button>
-                        <button id="btn-pass" title="虚手">⏭ 虚手</button>
-                        <button id="btn-analyze" title="分析当前局面">🔍 分析</button>
-                        <button id="btn-new-game" title="新对局">🔄 新对局</button>
+                        <button id="btn-undo">↩ <span class="i18n" data-key="undo">悔棋</span></button>
+                        <button id="btn-pass">⏭ <span class="i18n" data-key="pass">虚手</span></button>
+                        <button id="btn-analyze">🔍 <span class="i18n" data-key="analyze">分析</span></button>
+                        <button id="btn-new-game">🔄 <span class="i18n" data-key="newGame">新对局</span></button>
                     </div>
                     <div class="action-buttons" style="margin-top:4px">
-                        <button id="btn-camera" title="拍照识别棋盘">📷 拍照识别</button>
+                        <button id="btn-camera">📷 <span class="i18n" data-key="recognize">拍照识别</span></button>
                         <input type="file" id="camera-input" accept="image/*" capture="environment" style="display:none">
                     </div>
                 </div>
 
-                <!-- 设置 -->
+                <!-- Settings -->
                 <div class="panel-section collapsible" id="settings-section">
-                    <h3 class="section-toggle" data-target="settings-body">⚙ 设置 <span class="toggle-icon">▾</span></h3>
+                    <h3 class="section-toggle" data-target="settings-body">
+                        ⚙ <span class="i18n" data-key="settings">设置</span>
+                        <span class="toggle-icon">▾</span>
+                    </h3>
                     <div id="settings-body" class="section-body">
                         <div class="setting-row">
-                            <label for="board-size">棋盘</label>
+                            <label for="board-size"><span class="i18n" data-key="boardSize">棋盘</span></label>
                             <select id="board-size">
                                 <option value="19" selected>19×19</option>
                                 <option value="13">13×13</option>
@@ -89,7 +96,7 @@
                             </select>
                         </div>
                         <div class="setting-row">
-                            <label for="komi">贴目</label>
+                            <label for="komi"><span class="i18n" data-key="komi">贴目</span></label>
                             <select id="komi">
                                 <option value="7.5" selected>7.5</option>
                                 <option value="6.5">6.5</option>
@@ -98,7 +105,7 @@
                             </select>
                         </div>
                         <div class="setting-row">
-                            <label for="max-visits">搜索量</label>
+                            <label for="max-visits"><span class="i18n" data-key="visits">搜索量</span></label>
                             <select id="max-visits">
                                 <option value="100">100</option>
                                 <option value="300">300</option>
@@ -109,49 +116,46 @@
                             </select>
                         </div>
                         <div class="setting-row">
-                            <label><input type="checkbox" id="show-analysis" checked> 分析</label>
-                            <label><input type="checkbox" id="show-ownership"> 目数</label>
-                            <label><input type="checkbox" id="show-move-number"> 手数</label>
+                            <label><input type="checkbox" id="show-analysis" checked> <span class="i18n" data-key="showAnalysis">分析</span></label>
+                            <label><input type="checkbox" id="show-ownership"> <span class="i18n" data-key="showOwnership">目数</span></label>
+                            <label><input type="checkbox" id="show-move-number"> <span class="i18n" data-key="showMoveNum">手数</span></label>
                         </div>
                     </div>
                 </div>
 
-                <!-- 推荐走法 -->
+                <!-- Suggestions -->
                 <div class="panel-section" id="suggestions-section">
-                    <h3>推荐走法</h3>
+                    <h3><span class="i18n" data-key="suggestions">推荐走法</span></h3>
                     <div id="suggestions-list">
-                        <p class="placeholder">落子后将显示分析</p>
+                        <p class="placeholder i18n" data-key="suggestPlaceholder">落子后将显示分析</p>
                     </div>
                 </div>
 
-                <!-- 变化图 PV -->
+                <!-- PV -->
                 <div class="panel-section" id="pv-section">
-                    <h3>主要变化</h3>
+                    <h3><span class="i18n" data-key="mainLine">主要变化</span></h3>
                     <div id="pv-display">
-                        <p class="placeholder">点击推荐走法查看变化</p>
+                        <p class="placeholder i18n" data-key="pvPlaceholder">点击推荐走法查看变化</p>
                     </div>
                 </div>
             </div>
         </main>
 
-        <!-- 棋盘识别弹窗 -->
+        <!-- Board recognition modal -->
         <div id="recognize-modal" class="modal-overlay" style="display:none">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h3 id="recognize-title">📷 棋盘识别</h3>
+                    <h3>📷 <span class="i18n" data-key="recognize">拍照识别</span></h3>
                     <button id="modal-close" class="modal-close-btn">✕</button>
                 </div>
                 <div class="modal-body">
-                    <!-- 阶段1：上传/识别中 -->
                     <div id="recognize-loading" style="display:none">
-                        <p>🤖 AI 正在识别棋盘，请稍候...</p>
+                        <p><span class="i18n" data-key="recognizing">🤖 AI 正在识别棋盘，请稍候...</span></p>
                     </div>
-
-                    <!-- 阶段2：识别结果预览 -->
                     <div id="recognize-result" style="display:none">
                         <div class="recognize-preview-row">
                             <div class="recognize-preview-col">
-                                <p class="preview-label">识别结果</p>
+                                <p class="preview-label"><span class="i18n" data-key="recognizeResult">识别结果</span></p>
                                 <canvas id="recognize-board-canvas" width="380" height="380"></canvas>
                             </div>
                         </div>
@@ -159,19 +163,46 @@
                             <span id="recognize-confidence"></span>
                             <span id="recognize-auto-status"></span>
                         </div>
-                        <p class="recognize-hint">点击棋盘修正：空 → ⚫ → ⚪ → 空</p>
+                        <p class="recognize-hint"><span class="i18n" data-key="recognizeHint">点击棋盘修正：空 → ⚫ → ⚪ → 空</span></p>
                         <div class="recognize-actions">
-                            <button id="btn-recognize-confirm" class="btn-primary">✅ 确认加载</button>
-                            <button id="btn-recognize-retry">📷 重新拍照</button>
+                            <button id="btn-recognize-confirm" class="btn-primary">✅ <span class="i18n" data-key="confirmLoad">确认加载</span></button>
+                            <button id="btn-recognize-retry">📷 <span class="i18n" data-key="retakePhoto">重新拍照</span></button>
                             <div class="recognize-color-select">
-                                <label>下一手：</label>
+                                <label><span class="i18n" data-key="nextPlayer">下一手：</span></label>
                                 <select id="recognize-next-player">
-                                    <option value="1">⚫ 黑</option>
-                                    <option value="2">⚪ 白</option>
+                                    <option value="1">⚫ <span class="i18n" data-key="black">黑</span></option>
+                                    <option value="2">⚪ <span class="i18n" data-key="white">白</span></option>
                                 </select>
                             </div>
                         </div>
                     </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Auth modal (login / register) -->
+        <div id="auth-modal" class="modal-overlay" style="display:none">
+            <div class="modal-content auth-modal-content">
+                <div class="modal-header">
+                    <div class="auth-tabs">
+                        <button class="auth-tab active" id="tab-login">
+                            <span class="i18n" data-key="signIn">登录</span>
+                        </button>
+                        <button class="auth-tab" id="tab-register">
+                            <span class="i18n" data-key="register">注册</span>
+                        </button>
+                    </div>
+                    <button id="auth-modal-close" class="modal-close-btn">✕</button>
+                </div>
+                <div class="modal-body">
+                    <div id="auth-error" class="auth-error" style="display:none"></div>
+                    <form id="auth-form" class="auth-form" autocomplete="on">
+                        <label for="auth-username-input" class="i18n" data-key="username">用户名</label>
+                        <input type="text" id="auth-username-input" autocomplete="username">
+                        <label for="auth-password-input" class="i18n" data-key="password">密码</label>
+                        <input type="password" id="auth-password-input" autocomplete="current-password">
+                        <button type="submit" id="auth-submit" class="btn-primary i18n" data-key="signIn">登录</button>
+                    </form>
                 </div>
             </div>
         </div>
