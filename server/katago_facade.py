@@ -45,6 +45,7 @@ class KataGoFacade(ABC):
         include_ownership: bool = False,
         initial_stones: Optional[list] = None,
         initial_player: Optional[str] = None,
+        query_id: Optional[str] = None,
     ) -> dict:
         """
         Analyse a Go position and return ranked candidate moves.
@@ -57,6 +58,8 @@ class KataGoFacade(ABC):
             include_ownership: Whether to include per-intersection ownership.
             initial_stones:    Stones to place before the move history.
             initial_player:    Player to move first ("B" or "W").
+            query_id:          Optional explicit id so the caller can later
+                               terminate() this specific query.
 
         Returns:
             Dict with keys: currentPlayer, winrate, scoreLead, visits,
@@ -66,6 +69,16 @@ class KataGoFacade(ABC):
             EngineNotRunningError: The process is not alive.
             EngineTimeoutError:    No response within the timeout window.
             EngineQueryError:      KataGo returned an error in its response.
+        """
+
+    @abstractmethod
+    def terminate(self, query_id: str) -> None:
+        """
+        Best-effort abort of the in-flight query identified by *query_id*.
+
+        Used to stop analysing a stale position the moment the board
+        changes.  Implementations should treat this as an optimisation:
+        failure to terminate must never affect correctness.
         """
 
     @abstractmethod

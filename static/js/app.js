@@ -300,14 +300,13 @@
     let isThinking   = false;
     let aiVsAiInterval = null;
 
-    // Snapshot of board.moves taken at the moment requestAnalysis() fires.
-    // handleAnalysisResult() compares against current board to detect stale responses.
-    let _analysisSnapshot = null;
-
-    function _boardSnapshot() {
-        return JSON.stringify(board.moves) + "|" + board.size + "|" +
-               (board.initialStones ? JSON.stringify(board.initialStones) : "");
-    }
+    // Monotonic request id. Each requestAnalysis() bumps the counter and tags
+    // its emit with reqId; the server echoes it back in the analysis result.
+    // handleAnalysisResult() ignores any result whose reqId is not the latest,
+    // so a stale response (from a position the user already moved past) is
+    // never displayed.
+    let _analysisReqSeq      = 0;
+    let _latestAnalysisReqId = 0;
 
     // ── Init ──────────────────────────────────────────────────────────────────
 
@@ -449,10 +448,12 @@
         if (!document.getElementById("show-analysis").checked) return;
         if (!isLoggedIn()) { showAuthModal(); return; }
 
-        _analysisSnapshot = _boardSnapshot(); // record position before sending
+        const reqId = ++_analysisReqSeq;
+        _latestAnalysisReqId = reqId;
         setStatus("loading", t("analyzing"));
 
         const data = {
+            reqId:            reqId,
             moves:            board.moves,
             boardSize:        board.size,
             komi:             getKomi(),
@@ -467,10 +468,10 @@
     }
 
     function handleAnalysisResult(data) {
-        // Discard stale responses: if the board changed since we sent the
-        // request, ignore this result and immediately re-request.
-        if (_analysisSnapshot && _boardSnapshot() !== _analysisSnapshot) {
-            requestAnalysis();
+        // Ignore stale results: only the latest request's reqId is accepted.
+        // The server already discards superseded queries, but this guards
+        // against any out-of-order delivery on the client side too.
+        if (data.reqId !== undefined && data.reqId !== _latestAnalysisReqId) {
             return;
         }
         setStatus("online", t("engineReady"));

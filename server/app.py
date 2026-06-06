@@ -53,6 +53,11 @@ socketio = SocketIO(app, cors_allowed_origins="*", async_mode="eventlet")
 
 engine: Optional[KataGoFacade] = None
 
+# Tracks the latest in-flight analysis query id per connected client (sid).
+# When a client sends a new analysis request, the previous one is terminated
+# and any result that comes back for a superseded query is discarded.
+_active_query: dict = {}
+
 
 def _on_cb_state_change(old_state, new_state) -> None:
     """Broadcast circuit breaker state changes to all connected clients."""
@@ -258,10 +263,28 @@ def _protected_engine_call(operation) -> dict | None:
 
 
 def _run_analysis(data: dict, default_max_visits: int) -> None:
-    """Shared logic for the analyze and quick_analyze handlers."""
+    """
+    Shared logic for the analyze and quick_analyze handlers.
+
+    Single-flight per client: if a new analysis request arrives while a
+    previous one is still running, the old query is terminated and its
+    (stale) result is discarded — only the latest position is reported.
+    """
     if not engine or not engine.is_running():
         emit(Events.ERROR, {"message": "Engine is not running"})
         return
+
+    sid    = request.sid
+    req_id = data.get("reqId")
+
+    # Abort the previous in-flight analysis for this client so KataGo can
+    # devote its full search budget to the new position immediately.
+    prev_id = _active_query.get(sid)
+    if prev_id:
+        engine.terminate(prev_id)
+
+    query_id = f"{sid}:{req_id}"
+    _active_query[sid] = query_id
 
     moves          = data.get("moves", [])
     board_size     = data.get("boardSize", 19)
@@ -273,13 +296,29 @@ def _run_analysis(data: dict, default_max_visits: int) -> None:
 
     logger.info(f"Analysis: {len(moves)} moves, visits={max_visits}")
 
-    result = _protected_engine_call(lambda: engine.analyze_position(
-        moves=moves, board_size=board_size, komi=komi,
-        max_visits=max_visits, include_ownership=include_own,
-        initial_stones=initial_stones, initial_player=initial_player,
-    ))
-    if result is not None:
-        emit(Events.ANALYSIS, result)
+    try:
+        result = cb.call(lambda: engine.analyze_position(
+            moves=moves, board_size=board_size, komi=komi,
+            max_visits=max_visits, include_ownership=include_own,
+            initial_stones=initial_stones, initial_player=initial_player,
+            query_id=query_id,
+        ))
+    except (CircuitOpenError, EngineNotRunningError,
+            EngineTimeoutError, EngineQueryError) as exc:
+        # Only surface the error if this is still the client's latest request.
+        if _active_query.get(sid) == query_id:
+            _active_query.pop(sid, None)
+            logger.warning(f"Analysis failed: {exc}")
+            _emit_engine_error(exc)
+        return
+
+    # Discard silently if a newer request has superseded this one.
+    if _active_query.get(sid) != query_id:
+        return
+    _active_query.pop(sid, None)
+
+    result["reqId"] = req_id
+    emit(Events.ANALYSIS, result)
 
 
 # ── WebSocket event handlers ──────────────────────────────────────────────────
@@ -307,6 +346,7 @@ def handle_connect():
 @socketio.on("disconnect")
 def handle_disconnect():
     logger.info(f"Client disconnected: {request.sid}")
+    _active_query.pop(request.sid, None)
 
 
 @socketio.on(Events.ANALYZE)
