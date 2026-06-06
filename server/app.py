@@ -13,34 +13,10 @@ from flask_cors import CORS
 
 from katago_engine import KataGoEngine
 from noword_recognizer import recognize_board_noword, NOWORD_AVAILABLE
-
-# ============== 配置 ==============
-# 你需要修改以下路径为你实际的文件路径
-
-# KataGo 可执行文件路径
-KATAGO_PATH = os.environ.get(
-    "KATAGO_PATH",
-    r"C:\katago\katago.exe"
+from config import (
+    KATAGO_PATH, MODEL_PATH, CONFIG_PATH,
+    PORT, DEFAULT_MAX_VISITS, QUICK_MAX_VISITS,
 )
-
-# KataGo 模型权重路径
-MODEL_PATH = os.environ.get(
-    "KATAGO_MODEL",
-    r"C:\katago\kata1-b18c384nbt-s9996604416-d4316597426.bin.gz"
-)
-
-# KataGo 配置文件路径
-CONFIG_PATH = os.environ.get(
-    "KATAGO_CONFIG",
-    os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                 "config", "default_gtp.cfg")
-)
-
-# 服务器端口
-PORT = int(os.environ.get("PORT", 5000))
-
-# 默认分析次数
-DEFAULT_MAX_VISITS = int(os.environ.get("DEFAULT_MAX_VISITS", 3000))
 
 # ============== 初始化 ==============
 logging.basicConfig(
