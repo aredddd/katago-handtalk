@@ -23,7 +23,7 @@ from exceptions import EngineNotRunningError, EngineTimeoutError, EngineQueryErr
 from auth import (
     init_db, register_user, verify_user, create_token, require_auth,
     require_admin, delete_user, list_users, change_password,
-    get_setting, set_setting, decode_token,
+    get_setting, set_setting, decode_token, get_user_is_admin,
 )
 
 # ── Logging ──────────────────────────────────────────────────────────────────
@@ -95,7 +95,11 @@ def api_register():
     ok, msg = register_user(username, password)
     if ok:
         token = create_token(username)
-        return jsonify({"token": token, "username": username}), 201
+        return jsonify({
+            "token":    token,
+            "username": username,
+            "is_admin": get_user_is_admin(username),
+        }), 201
     return jsonify({"error": msg}), 400
 
 
@@ -107,7 +111,11 @@ def api_login():
     password = body.get("password", "")
     if verify_user(username, password):
         token = create_token(username)
-        return jsonify({"token": token, "username": username})
+        return jsonify({
+            "token":    token,
+            "username": username,
+            "is_admin": get_user_is_admin(username),
+        })
     return jsonify({"error": "Invalid username or password"}), 401
 
 

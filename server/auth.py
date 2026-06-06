@@ -223,6 +223,12 @@ def _token_from_request() -> str:
     return auth[7:] if auth.startswith("Bearer ") else ""
 
 
+def get_user_is_admin(username: str) -> bool:
+    """Return True if the user exists and has admin privileges."""
+    record = _get_user_record(username)
+    return bool(record and record["is_admin"])
+
+
 def _get_user_record(username: str) -> dict | None:
     with sqlite3.connect(_DB_PATH) as conn:
         row = conn.execute(

@@ -169,19 +169,23 @@
 
     const TOKEN_KEY    = "jwt_token";
     const USERNAME_KEY = "jwt_username";
+    const ADMIN_KEY    = "jwt_is_admin";
 
     function getToken()    { return localStorage.getItem(TOKEN_KEY); }
     function getUsername() { return localStorage.getItem(USERNAME_KEY); }
+    function isAdmin()     { return localStorage.getItem(ADMIN_KEY) === "1"; }
 
-    function saveAuth(token, username) {
+    function saveAuth(token, username, admin) {
         localStorage.setItem(TOKEN_KEY, token);
         localStorage.setItem(USERNAME_KEY, username);
+        localStorage.setItem(ADMIN_KEY, admin ? "1" : "0");
         _updateAuthArea();
     }
 
     function clearAuth() {
         localStorage.removeItem(TOKEN_KEY);
         localStorage.removeItem(USERNAME_KEY);
+        localStorage.removeItem(ADMIN_KEY);
         _updateAuthArea();
     }
 
@@ -200,9 +204,11 @@
         const area = document.getElementById("auth-area");
         if (!area) return;
         if (isLoggedIn()) {
-            area.innerHTML = `
-                <span id="auth-username-display" class="auth-username">${getUsername()}</span>
-                <button id="btn-logout" class="btn-auth btn-auth-out">${t("signOut")}</button>`;
+            const nameEl = isAdmin()
+                ? `<a href="/admin" id="auth-username-display" class="auth-username auth-admin-link">${getUsername()} ⚙</a>`
+                : `<span id="auth-username-display" class="auth-username">${getUsername()}</span>`;
+            area.innerHTML = nameEl +
+                `<button id="btn-logout" class="btn-auth btn-auth-out">${t("signOut")}</button>`;
             document.getElementById("btn-logout").addEventListener("click", () => {
                 clearAuth();
                 setStatus("online", t("engineReady"));
@@ -256,7 +262,7 @@
             });
             const data = await res.json();
             if (res.ok) {
-                saveAuth(data.token, data.username);
+                saveAuth(data.token, data.username, data.is_admin);
                 hideAuthModal();
                 // Trigger analysis now that we have a token
                 if (board && board.moves !== undefined) {
