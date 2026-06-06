@@ -8,13 +8,14 @@
 
     // ── WebSocket event name constants ────────────────────────────────────────
     const EVENTS = {
-        ANALYZE:       "analyze",
-        QUICK_ANALYZE: "quick_analyze",
-        PLAY_AI:       "play_ai",
-        ANALYSIS:      "analysis",
-        AI_MOVE:       "ai_move",
-        STATUS:        "status",
-        ERROR:         "error",
+        ANALYZE:        "analyze",
+        QUICK_ANALYZE:  "quick_analyze",
+        PLAY_AI:        "play_ai",
+        ANALYSIS:       "analysis",
+        AI_MOVE:        "ai_move",
+        STATUS:         "status",
+        ERROR:          "error",
+        CIRCUIT_STATUS: "circuit_status",
     };
 
     // ── i18n ─────────────────────────────────────────────────────────────────
@@ -74,6 +75,9 @@
             username:        "用户名",
             password:        "密码",
             loginRequired:   "请先登录后使用分析功能",
+            circuitOpen:     "断路器已断开 — 引擎暂时不可用",
+            circuitHalfOpen: "引擎恢复中…",
+            circuitClosed:   "引擎恢复正常",
         },
         en: {
             // status
@@ -130,6 +134,9 @@
             username:        "Username",
             password:        "Password",
             loginRequired:   "Please sign in to use analysis features",
+            circuitOpen:     "Circuit breaker open — engine temporarily unavailable",
+            circuitHalfOpen: "Engine recovering…",
+            circuitClosed:   "Engine recovered",
         },
     };
 
@@ -348,10 +355,16 @@
         socket.on(EVENTS.ERROR, (data) => {
             isThinking = false;
             if (data.code === 401) {
-                showAuthModal(true); // mandatory
+                showAuthModal(true);
                 return;
             }
+            // circuit_open flag means the CB emitted this — already handled
+            // by circuit_status, so just update status text
             setStatus("offline", data.message || "Error");
+        });
+
+        socket.on(EVENTS.CIRCUIT_STATUS, (data) => {
+            _updateCircuitStatus(data);
         });
     }
 
@@ -455,6 +468,20 @@
     function setStatus(state, text) {
         document.getElementById("engine-status").className = "status-dot " + state;
         document.getElementById("engine-text").textContent = text;
+    }
+
+    function _updateCircuitStatus(data) {
+        const state = data.state; // "CLOSED" | "OPEN" | "HALF_OPEN"
+        if (state === "OPEN") {
+            const retryIn = data.retry_in > 0 ? ` (${data.retry_in}s)` : "";
+            setStatus("offline", t("circuitOpen") + retryIn);
+        } else if (state === "HALF_OPEN") {
+            setStatus("loading", t("circuitHalfOpen"));
+        } else if (state === "CLOSED" && data.old && data.old !== "CLOSED") {
+            // Only show recovery message on actual OPEN→CLOSED transition
+            setStatus("online", t("circuitClosed"));
+            setTimeout(() => setStatus("online", t("engineReady")), 3000);
+        }
     }
 
     function updateWinrate(blackWr, scoreLead) {
