@@ -17,6 +17,7 @@ from config import (
     KATAGO_PATH, MODEL_PATH, CONFIG_PATH,
     PORT, DEFAULT_MAX_VISITS, QUICK_MAX_VISITS,
 )
+from events import Events
 
 # ============== 初始化 ==============
 logging.basicConfig(
@@ -107,7 +108,7 @@ def api_recognize():
 def handle_connect():
     """客户端连接"""
     logger.info(f"客户端连接: {request.sid}")
-    emit("status", {"running": engine.is_running() if engine else False})
+    emit(Events.STATUS, {"running": engine.is_running() if engine else False})
 
 
 @socketio.on("disconnect")
@@ -116,26 +117,16 @@ def handle_disconnect():
     logger.info(f"客户端断开: {request.sid}")
 
 
-@socketio.on("analyze")
-def handle_analyze(data):
-    """
-    处理分析请求
-    data: {
-        moves: [["B","D4"], ["W","Q16"], ...],
-        boardSize: 19,
-        komi: 7.5,
-        maxVisits: 3000,
-        includeOwnership: false
-    }
-    """
+def _run_analysis(data, default_max_visits):
+    """Shared analysis logic used by both analyze and quick_analyze handlers."""
     if not engine or not engine.is_running():
-        emit("error", {"message": "KataGo 引擎未运行"})
+        emit(Events.ERROR, {"message": "KataGo 引擎未运行"})
         return
 
-    moves = data.get("moves", [])
-    board_size = data.get("boardSize", 19)
-    komi = data.get("komi", 7.5)
-    max_visits = data.get("maxVisits", DEFAULT_MAX_VISITS)
+    moves          = data.get("moves", [])
+    board_size     = data.get("boardSize", 19)
+    komi           = data.get("komi", 7.5)
+    max_visits     = data.get("maxVisits", default_max_visits)
     include_ownership = data.get("includeOwnership", False)
     initial_stones = data.get("initialStones", None)
     initial_player = data.get("initialPlayer", None)
@@ -156,41 +147,34 @@ def handle_analyze(data):
     )
 
     if result:
-        emit("analysis", result)
+        emit(Events.ANALYSIS, result)
     else:
-        emit("error", {"message": "分析失败"})
+        emit(Events.ERROR, {"message": "分析失败"})
 
 
-@socketio.on("quick_analyze")
+@socketio.on(Events.ANALYZE)
+def handle_analyze(data):
+    """处理分析请求 — data: {moves, boardSize, komi, maxVisits, includeOwnership, initialStones, initialPlayer}"""
+    _run_analysis(data, DEFAULT_MAX_VISITS)
+
+
+@socketio.on(Events.QUICK_ANALYZE)
 def handle_quick_analyze(data):
-    """快速分析 - 较少搜索次数"""
-    if not engine or not engine.is_running():
-        emit("error", {"message": "KataGo 引擎未运行"})
-        return
-
-    data["maxVisits"] = data.get("maxVisits", 100)
-    handle_analyze(data)
+    """快速分析 — 较少搜索次数（默认 QUICK_MAX_VISITS）"""
+    _run_analysis(data, QUICK_MAX_VISITS)
 
 
-@socketio.on("play_ai")
+@socketio.on(Events.PLAY_AI)
 def handle_play_ai(data):
-    """
-    让 AI 下一步棋
-    data: {
-        moves: [...],
-        boardSize: 19,
-        komi: 7.5,
-        maxVisits: 800
-    }
-    """
+    """让 AI 下一步棋 — data: {moves, boardSize, komi, maxVisits, initialStones, initialPlayer}"""
     if not engine or not engine.is_running():
-        emit("error", {"message": "KataGo 引擎未运行"})
+        emit(Events.ERROR, {"message": "KataGo 引擎未运行"})
         return
 
-    moves = data.get("moves", [])
-    board_size = data.get("boardSize", 19)
-    komi = data.get("komi", 7.5)
-    max_visits = data.get("maxVisits", 800)
+    moves          = data.get("moves", [])
+    board_size     = data.get("boardSize", 19)
+    komi           = data.get("komi", 7.5)
+    max_visits     = data.get("maxVisits", 800)
     initial_stones = data.get("initialStones", None)
     initial_player = data.get("initialPlayer", None)
 
@@ -204,19 +188,18 @@ def handle_play_ai(data):
     )
 
     if result and result["moves"]:
-        best_move = result["moves"][0]
-        # 确定当前该谁下
+        best_move      = result["moves"][0]
         current_player = result["currentPlayer"]
-        emit("ai_move", {
-            "move": best_move["move"],
-            "color": current_player,
-            "winrate": best_move["winrate"],
+        emit(Events.AI_MOVE, {
+            "move":      best_move["move"],
+            "color":     current_player,
+            "winrate":   best_move["winrate"],
             "scoreLead": best_move["scoreLead"],
-            "visits": best_move["visits"],
-            "pv": best_move["pv"],
+            "visits":    best_move["visits"],
+            "pv":        best_move["pv"],
         })
     else:
-        emit("error", {"message": "AI 无法生成走法"})
+        emit(Events.ERROR, {"message": "AI 无法生成走法"})
 
 
 # ============== 启动 ==============
