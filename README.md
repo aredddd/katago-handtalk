@@ -1,6 +1,6 @@
 # KataGo Web
 
-A web-based Go (Weiqi/Baduk) AI interface powered by [KataGo](https://github.com/lightvector/KataGo). Play against one of the strongest Go engines directly from your browser — desktop or mobile.
+A web-based Go (Weiqi/Baduk) AI interface powered by [KataGo](https://github.com/lightvector/KataGo). Play and analyse against one of the strongest Go engines directly from your browser — desktop or mobile.
 
 ![Go Board](https://img.shields.io/badge/Game-Go%20%2F%20Weiqi-black) ![Python](https://img.shields.io/badge/Python-3.10%2B-blue) ![License](https://img.shields.io/badge/License-MIT-green)
 
@@ -10,32 +10,77 @@ A web-based Go (Weiqi/Baduk) AI interface powered by [KataGo](https://github.com
 - **Multiple play modes** — Free play, play vs AI (Black or White), and AI vs AI
 - **Move navigation** — full move history with slider, keyboard shortcuts (← → Home End), and branch navigation
 - **Camera board recognition** — take a photo of a real Go board, recognize the position using a CNN deep learning model ([noword/image2sgf](https://github.com/noword/image2sgf)), and continue analysis from there
+- **User accounts** — register / sign-in with JWT-based sessions; analysis features require login
+- **Admin panel** (`/admin`) — manage users, toggle open registration, change the admin password
+- **Multi-language UI** — switch between English and 中文 on the fly (preference saved locally)
+- **Resilient engine layer** — a Circuit Breaker protects the server from a hung or crashed KataGo process, failing fast instead of blocking, and recovers automatically
+- **Responsive analysis** — moving on the board cancels any in-flight analysis of the previous position so the engine always works on the latest board
 - **Mobile-friendly** — responsive layout, pinch-to-zoom, two-step move confirmation to prevent misclicks
 - **Real stone sounds** — KaTrain-style placement sounds with 5 random variations + capture sound
 - **Configurable** — adjustable komi (7.5 / 6.5 / 0.5 / 0), search visits (100–10000), board size (9×9, 13×13, 19×19)
 
 ## Architecture
 
+KataGo Web follows a **3-tier (n-layer) architecture**:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Presentation   Browser — Canvas board, Socket.IO client,    │
+│                 login / admin pages, i18n                    │
+├─────────────────────────────────────────────────────────────┤
+│  Application    Flask + Socket.IO server (app.py)            │
+│                   ├── Proxy        — JWT auth (require_auth)  │
+│                   └── Circuit Breaker — engine protection    │
+├─────────────────────────────────────────────────────────────┤
+│  Engine / Data  KataGoFacade → KataGoEngine → KataGo process │
+│                 user_store (SQLite: users + settings)        │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Project layout
+
 ```
 katago-web/
 ├── server/
-│   ├── app.py                 # Flask + SocketIO web server
-│   ├── katago_engine.py       # KataGo process manager (Analysis JSON API)
-│   └── noword_recognizer.py   # CNN board recognition (FCOS + EfficientNet)
+│   ├── app.py                # Flask + Socket.IO server, HTTP routes, WS handlers
+│   ├── config.py             # Environment-backed configuration
+│   ├── events.py             # WebSocket event-name constants
+│   ├── exceptions.py         # Custom exception hierarchy
+│   ├── katago_facade.py      # KataGoFacade — abstract engine interface (Façade)
+│   ├── katago_engine.py      # KataGoEngine — concrete Façade over the subprocess
+│   ├── circuit_breaker.py    # Circuit Breaker stability pattern
+│   ├── auth.py               # JWT helpers + Proxy decorators (require_auth/admin)
+│   ├── user_store.py         # SQLite persistence (users + settings)
+│   └── noword_recognizer.py  # CNN board recognition (FCOS + EfficientNet)
 ├── static/
-│   ├── index.html             # Main UI
-│   ├── css/style.css          # Responsive styles
+│   ├── index.html            # Main UI
+│   ├── admin.html            # Admin panel
+│   ├── css/
+│   │   ├── style.css         # Main responsive styles
+│   │   └── admin.css         # Admin panel styles
 │   ├── js/
-│   │   ├── app.js             # Application logic, WebSocket communication
-│   │   └── goboard.js         # Canvas board rendering, interaction, sounds
-│   └── sounds/                # Stone placement & capture audio files
+│   │   ├── app.js            # App logic, WebSocket, auth, i18n
+│   │   ├── goboard.js        # Canvas board rendering, interaction, sounds
+│   │   └── admin.js          # Admin panel logic
+│   └── sounds/               # Stone placement & capture audio files
 ├── config/
-│   └── default_gtp.cfg        # KataGo engine configuration
+│   └── default_gtp.cfg       # KataGo engine configuration
 ├── models/
-│   └── image2sgf/             # CNN model weights (board.pth + stone.pth)
-├── setup.ps1                  # One-click Windows setup script
+│   └── image2sgf/            # CNN model weights (board.pth + stone.pth)
+├── setup.ps1                 # One-click Windows setup script
 └── requirements.txt
 ```
+
+### Design patterns
+
+The server applies several classic patterns (used here for clean separation, substitutability, and resilience):
+
+| Pattern | Where | Purpose |
+|---------|-------|---------|
+| **Façade** (GoF) | `KataGoFacade` / `KataGoEngine` | Hide the KataGo subprocess, stdin/stdout JSON protocol, and threading behind a small interface |
+| **Proxy** (GoF) | `require_auth` / `require_admin` decorators | Intercept requests and enforce JWT authentication/authorisation before the real handler runs |
+| **Observer** | Socket.IO (`emit` / `on`) | Server broadcasts analysis, AI moves, and engine status to subscribed browser clients |
+| **Circuit Breaker** | `CircuitBreaker` | Fail fast and auto-recover when the KataGo engine is unresponsive |
 
 ## Prerequisites
 
@@ -65,29 +110,22 @@ This will download KataGo, model weights, install Python dependencies, generate 
 2. **Install Python dependencies**:
 
    ```bash
-   pip install flask flask-socketio flask-cors eventlet opencv-python-headless sgfmill
+   pip install -r requirements.txt
    ```
 
-3. **Install PyTorch** (for camera board recognition):
+   This includes Flask, Flask-SocketIO, eventlet, OpenCV, sgfmill, PyTorch, plus **PyJWT** and **bcrypt** for authentication.
+
+   For a CUDA build of PyTorch (much faster board recognition):
 
    ```bash
-   # CUDA (recommended, much faster)
    pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
-
-   # CPU only
-   pip install torch torchvision
    ```
 
-4. **Download CNN models** for board recognition (optional):
+3. **Download CNN models** for board recognition (optional):
 
    Download `board.pth` and `stone.pth` from [noword/image2sgf](https://github.com/noword/image2sgf) and place them in `models/image2sgf/`.
 
-5. **Configure paths** in `server/app.py` or via environment variables:
-
-   ```bash
-   export KATAGO_PATH=/path/to/katago
-   export KATAGO_MODEL=/path/to/model.bin.gz
-   ```
+4. **Configure paths** via environment variables (see table below) or edit `server/config.py`.
 
 ## Usage
 
@@ -97,6 +135,22 @@ python server/app.py
 ```
 
 Open `http://localhost:5000` in your browser.
+
+### Accounts & sign-in
+
+Analysis features require a signed-in account.
+
+- **First run** automatically creates a built-in admin account: **username `admin`, password `admin`** — change it from the admin panel after first login.
+- Anyone can **register** a normal account from the sign-in dialog (unless the admin has closed registration).
+- Sessions use a JWT stored in the browser's `localStorage` (24-hour lifetime).
+
+### Admin panel
+
+Visit `http://localhost:5000/admin` (or click your username in the header when signed in as admin). From there you can:
+
+- View and delete user accounts (the `admin` account is protected)
+- Open or close public registration
+- Change the admin password
 
 ### Remote Access
 
@@ -110,8 +164,8 @@ To access from your phone or another device, use [Tailscale](https://tailscale.c
 | `→` | Forward 1 move |
 | `Home` | Jump to start |
 | `End` | Jump to latest |
-| `Ctrl+←` | Back 10 moves |
-| `Ctrl+→` | Forward 10 moves |
+| `Shift+←` | Back 10 moves |
+| `Shift+→` | Forward 10 moves |
 
 ## Configuration
 
@@ -131,13 +185,18 @@ Edit `config/default_gtp.cfg` to tune KataGo parameters:
 | `KATAGO_CONFIG` | `config/default_gtp.cfg` | Path to KataGo config |
 | `PORT` | `5000` | Server port |
 | `DEFAULT_MAX_VISITS` | `3000` | Default analysis visits |
+| `QUICK_MAX_VISITS` | `100` | Visits for quick analysis |
+| `JWT_SECRET` | *(dev default)* | Secret used to sign JWT session tokens — **set a strong value in production** |
+
+> **Security note:** the default `JWT_SECRET`, the Flask `SECRET_KEY`, and the open CORS policy are convenient for local/LAN use and demos. For a public deployment, set a strong `JWT_SECRET`, restrict CORS origins, and serve over HTTPS.
 
 ## How It Works
 
-1. **Backend**: Flask + SocketIO server manages a KataGo subprocess via the Analysis JSON API
-2. **Frontend**: Canvas-based Go board with real-time WebSocket updates
-3. **Analysis**: KataGo returns top move candidates with win rates, scores, and principal variations — rendered as KaTrain-style colored circles
-4. **Recognition**: Photos of real boards are processed by a two-stage CNN pipeline:
+1. **Backend**: Flask + Socket.IO server manages a KataGo subprocess via the Analysis JSON API. The `KataGoFacade` hides the subprocess and protocol; a `CircuitBreaker` wraps every engine call.
+2. **Authentication**: `require_auth` (a Proxy) verifies a JWT on every analysis request; `require_admin` guards the admin API.
+3. **Frontend**: Canvas-based Go board with real-time WebSocket updates and a zh/en i18n layer.
+4. **Analysis**: KataGo returns top move candidates with win rates, scores, and principal variations — rendered as KaTrain-style colored circles. Win rate and score are normalised to Black's perspective. Moving on the board cancels the previous in-flight analysis.
+5. **Recognition**: Photos of real boards are processed by a two-stage CNN pipeline:
    - **FCOS** (ResNet50-FPN) detects the four corners of the board
    - **EfficientNet-B3** classifies each intersection as empty / black / white
 
