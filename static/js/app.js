@@ -224,7 +224,7 @@
     let _authMode     = "login"; // "login" | "register"
     let _authRequired = false;   // when true: modal cannot be dismissed
 
-    function showAuthModal(required = false) {
+    function showAuthModal(required = true) {
         _authRequired = required;
         _authMode     = "login";
         _renderAuthModal();
