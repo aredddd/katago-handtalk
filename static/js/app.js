@@ -300,6 +300,15 @@
     let isThinking   = false;
     let aiVsAiInterval = null;
 
+    // Snapshot of board.moves taken at the moment requestAnalysis() fires.
+    // handleAnalysisResult() compares against current board to detect stale responses.
+    let _analysisSnapshot = null;
+
+    function _boardSnapshot() {
+        return JSON.stringify(board.moves) + "|" + board.size + "|" +
+               (board.initialStones ? JSON.stringify(board.initialStones) : "");
+    }
+
     // ── Init ──────────────────────────────────────────────────────────────────
 
     window.addEventListener("DOMContentLoaded", () => {
@@ -440,6 +449,7 @@
         if (!document.getElementById("show-analysis").checked) return;
         if (!isLoggedIn()) { showAuthModal(); return; }
 
+        _analysisSnapshot = _boardSnapshot(); // record position before sending
         setStatus("loading", t("analyzing"));
 
         const data = {
@@ -457,6 +467,12 @@
     }
 
     function handleAnalysisResult(data) {
+        // Discard stale responses: if the board changed since we sent the
+        // request, ignore this result and immediately re-request.
+        if (_analysisSnapshot && _boardSnapshot() !== _analysisSnapshot) {
+            requestAnalysis();
+            return;
+        }
         setStatus("online", t("engineReady"));
         board.setAnalysis(data);
         updateWinrate(data.winrate, data.scoreLead);
