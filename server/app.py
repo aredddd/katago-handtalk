@@ -20,6 +20,7 @@ from config import (
 )
 from events import Events
 from exceptions import EngineNotRunningError, EngineTimeoutError, EngineQueryError
+from auth import init_db, register_user, verify_user, create_token, require_auth
 
 # ── Logging ──────────────────────────────────────────────────────────────────
 
@@ -42,8 +43,6 @@ app.config["SECRET_KEY"] = "katago-web-secret-key"
 CORS(app)
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode="eventlet")
 
-# Declared as KataGoFacade so the rest of the module depends on the
-# interface, not the concrete KataGoEngine class.
 engine: Optional[KataGoFacade] = None
 
 
@@ -54,12 +53,9 @@ def init_engine() -> bool:
 
     if not os.path.isfile(KATAGO_PATH):
         logger.error(f"KataGo executable not found: {KATAGO_PATH}")
-        logger.error("Run setup.ps1 or download KataGo manually.")
         return False
-
     if not os.path.isfile(MODEL_PATH):
         logger.error(f"KataGo model not found: {MODEL_PATH}")
-        logger.error("Run setup.ps1 or download the model weights manually.")
         return False
 
     if engine.start():
@@ -70,7 +66,7 @@ def init_engine() -> bool:
     return False
 
 
-# ── HTTP routes ───────────────────────────────────────────────────────────────
+# ── HTTP routes — public ──────────────────────────────────────────────────────
 
 @app.route("/")
 def index():
@@ -86,6 +82,31 @@ def api_status():
     })
 
 
+@app.route("/api/register", methods=["POST"])
+def api_register():
+    """Create a new user account."""
+    body = request.get_json(silent=True) or {}
+    username = body.get("username", "").strip()
+    password = body.get("password", "")
+    ok, msg = register_user(username, password)
+    if ok:
+        token = create_token(username)
+        return jsonify({"token": token, "username": username}), 201
+    return jsonify({"error": msg}), 400
+
+
+@app.route("/api/login", methods=["POST"])
+def api_login():
+    """Authenticate and return a JWT."""
+    body = request.get_json(silent=True) or {}
+    username = body.get("username", "").strip()
+    password = body.get("password", "")
+    if verify_user(username, password):
+        token = create_token(username)
+        return jsonify({"token": token, "username": username})
+    return jsonify({"error": "Invalid username or password"}), 401
+
+
 @app.route("/api/recognize", methods=["POST"])
 def api_recognize():
     """Board recognition via the noword CNN model."""
@@ -96,8 +117,7 @@ def api_recognize():
     board_size  = int(request.form.get("boardSize", 19))
 
     if not NOWORD_AVAILABLE:
-        return jsonify({"error": "Board recognition model not found — "
-                                 "check models/image2sgf/"}), 500
+        return jsonify({"error": "Board recognition model not found"}), 500
 
     logger.info("Running noword CNN board recognition")
     return jsonify(recognize_board_noword(image_bytes, board_size))
@@ -106,7 +126,6 @@ def api_recognize():
 # ── WebSocket helpers ─────────────────────────────────────────────────────────
 
 def _emit_engine_error(exc: Exception) -> None:
-    """Map a KataGoError subclass to a user-facing Socket.IO error event."""
     if isinstance(exc, EngineNotRunningError):
         msg = "Engine is not running"
     elif isinstance(exc, EngineTimeoutError):
@@ -119,7 +138,7 @@ def _emit_engine_error(exc: Exception) -> None:
 
 
 def _run_analysis(data: dict, default_max_visits: int) -> None:
-    """Shared logic for the analyze and quick_analyze Socket.IO handlers."""
+    """Shared logic for the analyze and quick_analyze handlers."""
     if not engine or not engine.is_running():
         emit(Events.ERROR, {"message": "Engine is not running"})
         return
@@ -132,19 +151,13 @@ def _run_analysis(data: dict, default_max_visits: int) -> None:
     initial_stones = data.get("initialStones", None)
     initial_player = data.get("initialPlayer", None)
 
-    logger.info(f"Analysis request: {len(moves)} moves, "
-                f"initialStones={len(initial_stones) if initial_stones else 0}, "
-                f"initialPlayer={initial_player}, visits={max_visits}")
+    logger.info(f"Analysis: {len(moves)} moves, visits={max_visits}")
 
     try:
         result = engine.analyze_position(
-            moves=moves,
-            board_size=board_size,
-            komi=komi,
-            max_visits=max_visits,
-            include_ownership=include_own,
-            initial_stones=initial_stones,
-            initial_player=initial_player,
+            moves=moves, board_size=board_size, komi=komi,
+            max_visits=max_visits, include_ownership=include_own,
+            initial_stones=initial_stones, initial_player=initial_player,
         )
         emit(Events.ANALYSIS, result)
     except (EngineNotRunningError, EngineTimeoutError, EngineQueryError) as exc:
@@ -166,22 +179,23 @@ def handle_disconnect():
 
 
 @socketio.on(Events.ANALYZE)
+@require_auth
 def handle_analyze(data):
-    """Full analysis — data: {moves, boardSize, komi, maxVisits, includeOwnership,
-    initialStones, initialPlayer}"""
+    """Full analysis (Proxy: require_auth verifies JWT before reaching here)."""
     _run_analysis(data, DEFAULT_MAX_VISITS)
 
 
 @socketio.on(Events.QUICK_ANALYZE)
+@require_auth
 def handle_quick_analyze(data):
-    """Fast analysis with fewer visits (default QUICK_MAX_VISITS)."""
+    """Fast analysis — fewer visits (Proxy: require_auth guards this handler)."""
     _run_analysis(data, QUICK_MAX_VISITS)
 
 
 @socketio.on(Events.PLAY_AI)
+@require_auth
 def handle_play_ai(data):
-    """Ask the AI for the next move — data: {moves, boardSize, komi, maxVisits,
-    initialStones, initialPlayer}"""
+    """AI move request (Proxy: require_auth guards this handler)."""
     if not engine or not engine.is_running():
         emit(Events.ERROR, {"message": "Engine is not running"})
         return
@@ -195,12 +209,9 @@ def handle_play_ai(data):
 
     try:
         result = engine.analyze_position(
-            moves=moves,
-            board_size=board_size,
-            komi=komi,
+            moves=moves, board_size=board_size, komi=komi,
             max_visits=max_visits,
-            initial_stones=initial_stones,
-            initial_player=initial_player,
+            initial_stones=initial_stones, initial_player=initial_player,
         )
     except (EngineNotRunningError, EngineTimeoutError, EngineQueryError) as exc:
         logger.warning(f"play_ai failed: {exc}")
@@ -208,11 +219,10 @@ def handle_play_ai(data):
         return
 
     if result and result.get("moves"):
-        best_move      = result["moves"][0]
-        current_player = result["currentPlayer"]
+        best_move = result["moves"][0]
         emit(Events.AI_MOVE, {
             "move":      best_move["move"],
-            "color":     current_player,
+            "color":     result["currentPlayer"],
             "winrate":   best_move["winrate"],
             "scoreLead": best_move["scoreLead"],
             "visits":    best_move["visits"],
@@ -225,12 +235,13 @@ def handle_play_ai(data):
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
+    init_db()   # ensure users table exists before accepting requests
+
     print("=" * 60)
     print("  KataGo Web Server")
     print("=" * 60)
     print(f"  KataGo : {KATAGO_PATH}")
     print(f"  Model  : {MODEL_PATH}")
-    print(f"  Config : {CONFIG_PATH}")
     print(f"  Port   : {PORT}")
     print(f"  Vision : {'noword CNN available' if NOWORD_AVAILABLE else 'model not found'}")
     print("=" * 60)
@@ -240,5 +251,4 @@ if __name__ == "__main__":
         socketio.run(app, host="0.0.0.0", port=PORT, debug=False)
     else:
         print("\n  Engine failed to start — check configuration paths.")
-        print("  Run setup.ps1 for automatic setup.")
         sys.exit(1)

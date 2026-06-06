@@ -6,3 +6,5 @@ opencv-python-headless
 sgfmill
 torch
 torchvision
+PyJWT>=2.8.0
+bcrypt>=4.0.0

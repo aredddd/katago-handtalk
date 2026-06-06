@@ -882,3 +882,113 @@ body {
     padding: 4px 8px;
     font-size: 13px;
 }
+
+/* ── Header right (language toggle + auth) ── */
+#header-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.btn-lang {
+    background: transparent;
+    border: 1px solid rgba(255,255,255,0.3);
+    color: var(--text-color);
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    cursor: pointer;
+    transition: border-color 0.2s;
+}
+.btn-lang:hover { border-color: var(--accent-color); color: var(--accent-color); }
+
+.btn-auth {
+    background: transparent;
+    border: 1px solid var(--accent-color);
+    color: var(--accent-color);
+    padding: 3px 10px;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+.btn-auth:hover { background: var(--accent-color); color: #000; }
+
+.btn-auth-out {
+    border-color: var(--danger);
+    color: var(--danger);
+}
+.btn-auth-out:hover { background: var(--danger); color: #fff; }
+
+.auth-username {
+    font-size: 0.85rem;
+    color: var(--accent-color);
+    margin-right: 4px;
+}
+
+/* ── Auth modal ── */
+.auth-modal-content {
+    max-width: 340px;
+    width: 100%;
+}
+
+.auth-tabs {
+    display: flex;
+    gap: 8px;
+}
+
+.auth-tab {
+    background: transparent;
+    border: none;
+    color: var(--text-color);
+    font-size: 1rem;
+    font-weight: 500;
+    padding: 4px 8px;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: border-color 0.2s, color 0.2s;
+}
+.auth-tab.active {
+    color: var(--accent-color);
+    border-bottom-color: var(--accent-color);
+}
+
+.auth-form {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 4px 0;
+}
+
+.auth-form label {
+    font-size: 0.85rem;
+    color: var(--text-color);
+    margin-bottom: -6px;
+}
+
+.auth-form input {
+    background: var(--bg-color);
+    border: 1px solid rgba(255,255,255,0.2);
+    color: var(--text-color);
+    border-radius: 4px;
+    padding: 8px 10px;
+    font-size: 0.9rem;
+    outline: none;
+    transition: border-color 0.2s;
+}
+.auth-form input:focus { border-color: var(--accent-color); }
+
+.auth-form .btn-primary {
+    margin-top: 4px;
+    padding: 9px;
+    font-size: 0.95rem;
+}
+
+.auth-error {
+    background: rgba(239,83,80,0.15);
+    border: 1px solid var(--danger);
+    color: var(--danger);
+    border-radius: 4px;
+    padding: 6px 10px;
+    font-size: 0.85rem;
+}

@@ -261,26 +261,39 @@ class KataGoEngine(KataGoFacade):
             logger.error(f"KataGo returned an error: {msg}")
             raise EngineQueryError(msg)
 
-        move_infos = result.get("moveInfos", [])
-        root_info = result.get("rootInfo", {})
+        move_infos    = result.get("moveInfos", [])
+        root_info     = result.get("rootInfo", {})
+        current_player = root_info.get("currentPlayer", "B")
+
+        # KataGo reports winrate and scoreLead from the current player's
+        # perspective.  Normalise to black's perspective so the frontend
+        # can display them unconditionally as "black winrate / black lead".
+        raw_winrate    = root_info.get("winrate", 0.5)
+        raw_score_lead = root_info.get("scoreLead", 0.0)
+        if current_player == "W":
+            black_winrate    = 1.0 - raw_winrate
+            black_score_lead = -raw_score_lead
+        else:
+            black_winrate    = raw_winrate
+            black_score_lead = raw_score_lead
 
         parsed = {
-            "currentPlayer": root_info.get("currentPlayer", "B"),
-            "winrate": root_info.get("winrate", 0.5),
-            "scoreLead": root_info.get("scoreLead", 0.0),
-            "visits": root_info.get("visits", 0),
+            "currentPlayer": current_player,
+            "winrate":       black_winrate,
+            "scoreLead":     black_score_lead,
+            "visits":        root_info.get("visits", 0),
             "moves": [],
         }
 
         for mi in move_infos:
             parsed["moves"].append({
-                "move": mi.get("move", "pass"),
-                "visits": mi.get("visits", 0),
-                "winrate": mi.get("winrate", 0.5),
+                "move":      mi.get("move", "pass"),
+                "visits":    mi.get("visits", 0),
+                "winrate":   mi.get("winrate", 0.5),
                 "scoreLead": mi.get("scoreLead", 0.0),
-                "order": mi.get("order", 0),
-                "pv": mi.get("pv", []),
-                "prior": mi.get("prior", 0.0),
+                "order":     mi.get("order", 0),
+                "pv":        mi.get("pv", []),
+                "prior":     mi.get("prior", 0.0),
             })
 
         if include_ownership and "ownership" in result:
@@ -288,6 +301,6 @@ class KataGoEngine(KataGoFacade):
 
         return parsed
 
-    def is_running(self):
-        """检查引擎是否在运行"""
+    def is_running(self) -> bool:
+        """Return True if the KataGo process is alive and has passed the readiness probe."""
         return self.process is not None and self.process.poll() is None and self.ready
