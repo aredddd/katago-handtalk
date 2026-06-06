@@ -25,6 +25,7 @@ from auth import (
     require_admin, delete_user, list_users, change_password,
     get_setting, set_setting, decode_token, get_user_is_admin,
 )
+from circuit_breaker import CircuitBreaker, CircuitOpenError
 
 # ── Logging ──────────────────────────────────────────────────────────────────
 
@@ -48,6 +49,24 @@ CORS(app)
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode="eventlet")
 
 engine: Optional[KataGoFacade] = None
+
+
+def _on_cb_state_change(old_state, new_state) -> None:
+    """Broadcast circuit breaker state changes to all connected clients."""
+    socketio.emit(Events.CIRCUIT_STATUS, {
+        "state":    new_state.value,
+        "old":      old_state.value,
+    })
+
+
+# Shared Circuit Breaker instance — protects all engine calls.
+# threshold=3  : 3 consecutive failures → OPEN
+# reset_timeout=30 : wait 30 s before HALF_OPEN trial
+cb = CircuitBreaker(
+    threshold=3,
+    reset_timeout=30,
+    on_state_change=_on_cb_state_change,
+)
 
 
 def init_engine() -> bool:
@@ -80,10 +99,17 @@ def index():
 @app.route("/api/status")
 def api_status():
     return jsonify({
-        "running":     engine.is_running() if engine else False,
-        "katago_path": KATAGO_PATH,
-        "model_path":  MODEL_PATH,
+        "running":        engine.is_running() if engine else False,
+        "katago_path":    KATAGO_PATH,
+        "model_path":     MODEL_PATH,
+        "circuit_breaker": cb.get_status(),
     })
+
+
+@app.route("/api/circuit-status")
+def api_circuit_status():
+    """Current circuit breaker state (for polling / debug)."""
+    return jsonify(cb.get_status())
 
 
 @app.route("/api/register", methods=["POST"])
@@ -199,15 +225,16 @@ def api_recognize():
 # ── WebSocket helpers ─────────────────────────────────────────────────────────
 
 def _emit_engine_error(exc: Exception) -> None:
-    if isinstance(exc, EngineNotRunningError):
-        msg = "Engine is not running"
+    if isinstance(exc, CircuitOpenError):
+        emit(Events.ERROR, {"message": str(exc), "circuit_open": True})
+    elif isinstance(exc, EngineNotRunningError):
+        emit(Events.ERROR, {"message": "Engine is not running"})
     elif isinstance(exc, EngineTimeoutError):
-        msg = "Engine timed out — try again"
+        emit(Events.ERROR, {"message": "Engine timed out — try again"})
     elif isinstance(exc, EngineQueryError):
-        msg = f"Engine error: {exc}"
+        emit(Events.ERROR, {"message": f"Engine error: {exc}"})
     else:
-        msg = f"Unexpected error: {exc}"
-    emit(Events.ERROR, {"message": msg})
+        emit(Events.ERROR, {"message": f"Unexpected error: {exc}"})
 
 
 def _run_analysis(data: dict, default_max_visits: int) -> None:
@@ -227,13 +254,14 @@ def _run_analysis(data: dict, default_max_visits: int) -> None:
     logger.info(f"Analysis: {len(moves)} moves, visits={max_visits}")
 
     try:
-        result = engine.analyze_position(
+        result = cb.call(lambda: engine.analyze_position(
             moves=moves, board_size=board_size, komi=komi,
             max_visits=max_visits, include_ownership=include_own,
             initial_stones=initial_stones, initial_player=initial_player,
-        )
+        ))
         emit(Events.ANALYSIS, result)
-    except (EngineNotRunningError, EngineTimeoutError, EngineQueryError) as exc:
+    except (CircuitOpenError, EngineNotRunningError,
+            EngineTimeoutError, EngineQueryError) as exc:
         logger.warning(f"Analysis failed: {exc}")
         _emit_engine_error(exc)
 
@@ -244,6 +272,7 @@ def _run_analysis(data: dict, default_max_visits: int) -> None:
 def handle_connect():
     logger.info(f"Client connected: {request.sid}")
     emit(Events.STATUS, {"running": engine.is_running() if engine else False})
+    emit(Events.CIRCUIT_STATUS, cb.get_status())
 
 
 @socketio.on("disconnect")
@@ -281,12 +310,13 @@ def handle_play_ai(data):
     initial_player = data.get("initialPlayer", None)
 
     try:
-        result = engine.analyze_position(
+        result = cb.call(lambda: engine.analyze_position(
             moves=moves, board_size=board_size, komi=komi,
             max_visits=max_visits,
             initial_stones=initial_stones, initial_player=initial_player,
-        )
-    except (EngineNotRunningError, EngineTimeoutError, EngineQueryError) as exc:
+        ))
+    except (CircuitOpenError, EngineNotRunningError,
+            EngineTimeoutError, EngineQueryError) as exc:
         logger.warning(f"play_ai failed: {exc}")
         _emit_engine_error(exc)
         return

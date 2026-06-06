@@ -17,3 +17,4 @@ class Events:
     AI_MOVE         = "ai_move"
     STATUS          = "status"
     ERROR           = "error"
+    CIRCUIT_STATUS  = "circuit_status"   # circuit breaker state change
