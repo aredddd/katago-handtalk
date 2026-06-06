@@ -6,6 +6,19 @@
 (function () {
     "use strict";
 
+    // ============== WebSocket event name constants ==============
+    const EVENTS = {
+        // Client → Server
+        ANALYZE:       "analyze",
+        QUICK_ANALYZE: "quick_analyze",
+        PLAY_AI:       "play_ai",
+        // Server → Client
+        ANALYSIS:      "analysis",
+        AI_MOVE:       "ai_move",
+        STATUS:        "status",
+        ERROR:         "error",
+    };
+
     // ============== 状态 ==============
     let socket = null;
     let board = null;
@@ -62,7 +75,7 @@
             setStatus("offline", "已断开");
         });
 
-        socket.on("status", (data) => {
+        socket.on(EVENTS.STATUS, (data) => {
             if (data.running) {
                 setStatus("online", "引擎就绪");
                 // 引擎就绪后自动分析当前局面（包括空棋盘开局）
@@ -72,15 +85,15 @@
             }
         });
 
-        socket.on("analysis", (data) => {
+        socket.on(EVENTS.ANALYSIS, (data) => {
             handleAnalysisResult(data);
         });
 
-        socket.on("ai_move", (data) => {
+        socket.on(EVENTS.AI_MOVE, (data) => {
             handleAiMove(data);
         });
 
-        socket.on("error", (data) => {
+        socket.on(EVENTS.ERROR, (data) => {
             console.error("服务器错误:", data.message);
             setStatus("offline", data.message);
             isThinking = false;
@@ -133,7 +146,7 @@
             aiData.initialStones = board.initialStones;
             aiData.initialPlayer = board.currentPlayer === 1 ? "B" : "W";
         }
-        socket.emit("play_ai", aiData);
+        socket.emit(EVENTS.PLAY_AI, aiData);
     }
 
     function handleAiMove(data) {
@@ -182,7 +195,7 @@
             analyzeData.initialStones = board.initialStones;
             analyzeData.initialPlayer = board.currentPlayer === 1 ? "B" : "W";
         }
-        socket.emit("analyze", analyzeData);
+        socket.emit(EVENTS.ANALYZE, analyzeData);
     }
 
     function handleAnalysisResult(data) {
