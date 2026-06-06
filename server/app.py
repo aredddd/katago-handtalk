@@ -25,7 +25,7 @@ from auth import (
     require_admin, delete_user, list_users, change_password,
     get_setting, set_setting, decode_token, get_user_is_admin,
 )
-from circuit_breaker import CircuitBreaker, CircuitOpenError
+from circuit_breaker import CircuitBreakerBase, CircuitBreaker, CircuitOpenError
 
 # ── Logging ──────────────────────────────────────────────────────────────────
 
@@ -62,7 +62,7 @@ def _on_cb_state_change(old_state, new_state) -> None:
 # Shared Circuit Breaker instance — protects all engine calls.
 # threshold=3  : 3 consecutive failures → OPEN
 # reset_timeout=30 : wait 30 s before HALF_OPEN trial
-cb = CircuitBreaker(
+cb: CircuitBreakerBase = CircuitBreaker(
     threshold=3,
     reset_timeout=30,
     on_state_change=_on_cb_state_change,

@@ -1,26 +1,33 @@
 """
 circuit_breaker.py — Circuit Breaker stability pattern (Nygard, 2018).
 
-Wraps calls to the KataGo engine and prevents cascading failures when
-the engine is slow or unresponsive.
+Class hierarchy (mirrors the GoF-style diagram used in TP1):
+
+    Client  ──uses──►  CircuitBreakerBase (ABC)
+                               ▲ implements
+                       CircuitBreaker (concrete)
+                               │ delegates (if not OPEN)
+                               ▼
+                       KataGoFacade / any callable
 
 States
 ------
-CLOSED   — normal operation; calls pass through; failure count tracked
-OPEN     — engine considered failed; calls fail-fast with CircuitOpenError
+CLOSED    — normal operation; calls pass through; failure count tracked
+OPEN      — engine considered failed; calls fail-fast with CircuitOpenError
 HALF_OPEN — one trial call allowed; success → CLOSED, failure → OPEN
 
 Transitions
 -----------
-CLOSED  → OPEN      : failure_count >= threshold
-OPEN    → HALF_OPEN : reset_timeout seconds have elapsed
-HALF_OPEN → CLOSED  : trial call succeeds
-HALF_OPEN → OPEN    : trial call fails
+CLOSED    → OPEN      : failure_count >= threshold
+OPEN      → HALF_OPEN : _timeout_expired() returns True
+HALF_OPEN → CLOSED    : trial call succeeds  / failure count reset
+HALF_OPEN → OPEN      : trial call fails
 """
 
 import time
 import threading
 import logging
+from abc import ABC, abstractmethod
 from enum import Enum
 from typing import Callable, Optional
 
@@ -37,16 +44,44 @@ class CircuitOpenError(Exception):
     """Raised when a call is attempted while the circuit breaker is OPEN."""
 
 
-class CircuitBreaker:
+# ── Abstract interface (the "CircuitBreaker" box in the class diagram) ─────────
+
+class CircuitBreakerBase(ABC):
     """
-    Circuit Breaker (Nygard stability pattern).
+    Abstract interface for the Circuit Breaker pattern.
+
+    The rest of the application (app.py) depends on this interface,
+    not on the concrete implementation — same decoupling principle as
+    KataGoFacade for the engine layer.
+    """
+
+    @abstractmethod
+    def call(self, operation: Callable):
+        """
+        Execute *operation* through the circuit breaker.
+
+        Raises CircuitOpenError if the circuit is OPEN (fail-fast).
+        Propagates any exception raised by *operation* after recording
+        the failure.
+        """
+
+    @abstractmethod
+    def get_status(self) -> dict:
+        """Return a JSON-serialisable status snapshot."""
+
+
+# ── Concrete implementation ─────────────────────────────────────────────────────
+
+class CircuitBreaker(CircuitBreakerBase):
+    """
+    Concrete Circuit Breaker implementation.
 
     Parameters
     ----------
-    threshold     : number of consecutive failures before opening
-    reset_timeout : seconds to wait in OPEN state before trying HALF_OPEN
-    on_state_change : optional callback(old: State, new: State) — used
-                      to broadcast the new state to connected clients
+    threshold       : consecutive failures before transitioning to OPEN
+    reset_timeout   : seconds to wait in OPEN before allowing a trial (HALF_OPEN)
+    on_state_change : optional callback(old: State, new: State) —
+                      used to broadcast state changes to connected clients
     """
 
     def __init__(
@@ -55,8 +90,8 @@ class CircuitBreaker:
         reset_timeout: float = 30.0,
         on_state_change: Optional[Callable] = None,
     ):
-        self.threshold      = threshold
-        self.reset_timeout  = reset_timeout
+        self.threshold       = threshold
+        self.reset_timeout   = reset_timeout
         self.on_state_change = on_state_change
 
         self._state         = State.CLOSED
@@ -64,31 +99,19 @@ class CircuitBreaker:
         self._opened_at: Optional[float] = None
         self._lock          = threading.Lock()
 
-    # ── Public interface ──────────────────────────────────────────────────────
-
-    @property
-    def state(self) -> State:
-        return self._state
+    # ── CircuitBreakerBase interface ────────────────────────────────────────────
 
     def call(self, operation: Callable):
-        """
-        Execute *operation* through the circuit breaker.
-
-        Raises
-        ------
-        CircuitOpenError          — circuit is OPEN (fail-fast)
-        Any exception from *operation* — propagated after recording failure
-        """
         with self._lock:
             if self._state == State.OPEN:
-                elapsed = time.monotonic() - self._opened_at
-                if elapsed >= self.reset_timeout:
+                if self._timeout_expired():
                     self._transition(State.HALF_OPEN)
                 else:
-                    remaining = int(self.reset_timeout - elapsed)
+                    remaining = int(self.reset_timeout -
+                                    (time.monotonic() - self._opened_at))
                     raise CircuitOpenError(
                         f"Circuit is OPEN — engine unavailable "
-                        f"(retry in {remaining}s)"
+                        f"(retry in {max(0, remaining)}s)"
                     )
 
         try:
@@ -100,7 +123,6 @@ class CircuitBreaker:
             raise
 
     def get_status(self) -> dict:
-        """Return a status snapshot suitable for JSON serialisation."""
         with self._lock:
             remaining = 0
             if self._state == State.OPEN and self._opened_at:
@@ -116,7 +138,18 @@ class CircuitBreaker:
                 "retry_in":      remaining,
             }
 
-    # ── Internal ──────────────────────────────────────────────────────────────
+    # ── State property ──────────────────────────────────────────────────────────
+
+    @property
+    def state(self) -> State:
+        return self._state
+
+    # ── Private helpers (named to match the class diagram) ─────────────────────
+
+    def _timeout_expired(self) -> bool:
+        """Return True if reset_timeout has elapsed since the circuit opened."""
+        return (self._opened_at is not None and
+                time.monotonic() - self._opened_at >= self.reset_timeout)
 
     def _on_success(self) -> None:
         with self._lock:
