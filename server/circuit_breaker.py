@@ -22,6 +22,11 @@ CLOSED    → OPEN      : failure_count >= threshold
 OPEN      → HALF_OPEN : _timeout_expired() returns True
 HALF_OPEN → CLOSED    : trial call succeeds  / failure count reset
 HALF_OPEN → OPEN      : trial call fails
+
+Invariant: in HALF_OPEN exactly ONE trial call is allowed through; any
+other call arriving while that probe is in flight fails fast with
+CircuitOpenError.  This is enforced even under concurrent (eventlet
+green-thread) access via the internal lock.
 """
 
 import time
@@ -105,6 +110,7 @@ class CircuitBreaker(CircuitBreakerBase):
         with self._lock:
             if self._state == State.OPEN:
                 if self._timeout_expired():
+                    # This call becomes the single trial probe.
                     self._transition(State.HALF_OPEN)
                 else:
                     remaining = int(self.reset_timeout -
@@ -113,6 +119,13 @@ class CircuitBreaker(CircuitBreakerBase):
                         f"Circuit is OPEN — engine unavailable "
                         f"(retry in {max(0, remaining)}s)"
                     )
+            elif self._state == State.HALF_OPEN:
+                # A trial probe started by another (concurrent) call is
+                # already in flight.  The textbook pattern allows exactly
+                # ONE trial call in HALF_OPEN — reject everyone else.
+                raise CircuitOpenError(
+                    "Circuit is HALF-OPEN — trial call already in progress"
+                )
 
         try:
             result = operation()

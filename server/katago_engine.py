@@ -228,9 +228,34 @@ class KataGoEngine(KataGoFacade):
         finally:
             self.response_queues.pop(query_id, None)
 
+    def terminate(self, query_id) -> None:
+        """
+        Best-effort: ask KataGo to stop computing the query with *query_id*.
+
+        Sends the Analysis-Engine "terminate" action.  Used to abort an
+        in-flight analysis when the board position changes, so the engine
+        can devote its full search budget to the latest position instead
+        of finishing stale work.  Errors are swallowed — termination is
+        an optimisation, never required for correctness.
+        """
+        if not self.process or self.process.poll() is not None:
+            return
+        cmd = {
+            "id":          f"terminate_{query_id}",
+            "action":      "terminate",
+            "terminateId": query_id,
+        }
+        try:
+            self.process.stdin.write((json.dumps(cmd) + "\n").encode("utf-8"))
+            self.process.stdin.flush()
+            logger.debug(f"Sent terminate for query {query_id}")
+        except Exception as e:
+            logger.debug(f"terminate({query_id}) failed: {e}")
+
     def analyze_position(self, moves, board_size=19, komi=7.5,
                          max_visits=3000, include_ownership=False,
-                         initial_stones=None, initial_player=None):
+                         initial_stones=None, initial_player=None,
+                         query_id=None):
         """
         Analyse a Go position and return ranked candidate moves.
 
@@ -243,6 +268,10 @@ class KataGoEngine(KataGoFacade):
                            scoreLead, order, pv, prior)
             ownership      list of per-intersection values (if requested)
 
+        Args:
+            query_id: optional explicit id so the caller can later
+                      terminate() this specific query.
+
         Raises:
             EngineNotRunningError, EngineTimeoutError, EngineQueryError
         """
@@ -254,6 +283,7 @@ class KataGoEngine(KataGoFacade):
             include_ownership=include_ownership,
             initial_stones=initial_stones,
             initial_player=initial_player,
+            query_id=query_id,
         )
 
         if "error" in result:

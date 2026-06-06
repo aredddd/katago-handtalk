@@ -21,3 +21,11 @@ class EngineTimeoutError(KataGoError):
 
 class EngineQueryError(KataGoError):
     """Raised when KataGo returns a response that contains an error field."""
+
+
+class AuthenticationError(Exception):
+    """
+    Raised by require_auth when a Socket.IO request carries an invalid
+    or missing JWT token.  Caught by the socketio error handler in app.py,
+    which emits the 401 error event — keeping auth.py free of SocketIO imports.
+    """
