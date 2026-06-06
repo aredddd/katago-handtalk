@@ -19,12 +19,15 @@ from config import (
     PORT, DEFAULT_MAX_VISITS, QUICK_MAX_VISITS,
 )
 from events import Events
-from exceptions import EngineNotRunningError, EngineTimeoutError, EngineQueryError
-from auth import (
-    init_db, register_user, verify_user, create_token, require_auth,
-    require_admin, delete_user, list_users, change_password,
-    get_setting, set_setting, decode_token, get_user_is_admin,
+from exceptions import (
+    EngineNotRunningError, EngineTimeoutError, EngineQueryError,
+    AuthenticationError,
 )
+from user_store import (
+    init_db, register_user, verify_user, delete_user, list_users,
+    change_password, get_setting, set_setting, get_user_is_admin,
+)
+from auth import create_token, decode_token, require_auth, require_admin
 from circuit_breaker import CircuitBreakerBase, CircuitBreaker, CircuitOpenError
 
 # ── Logging ──────────────────────────────────────────────────────────────────
@@ -225,6 +228,7 @@ def api_recognize():
 # ── WebSocket helpers ─────────────────────────────────────────────────────────
 
 def _emit_engine_error(exc: Exception) -> None:
+    """Map an engine exception to a user-facing Socket.IO error event."""
     if isinstance(exc, CircuitOpenError):
         emit(Events.ERROR, {"message": str(exc), "circuit_open": True})
     elif isinstance(exc, EngineNotRunningError):
@@ -235,6 +239,22 @@ def _emit_engine_error(exc: Exception) -> None:
         emit(Events.ERROR, {"message": f"Engine error: {exc}"})
     else:
         emit(Events.ERROR, {"message": f"Unexpected error: {exc}"})
+
+
+def _protected_engine_call(operation) -> dict | None:
+    """
+    Execute *operation* through the circuit breaker and return the result.
+
+    On any engine failure, emits an error event and returns None so the
+    caller just checks `if result is None: return`.
+    """
+    try:
+        return cb.call(operation)
+    except (CircuitOpenError, EngineNotRunningError,
+            EngineTimeoutError, EngineQueryError) as exc:
+        logger.warning(f"Engine call failed: {exc}")
+        _emit_engine_error(exc)
+        return None
 
 
 def _run_analysis(data: dict, default_max_visits: int) -> None:
@@ -253,20 +273,29 @@ def _run_analysis(data: dict, default_max_visits: int) -> None:
 
     logger.info(f"Analysis: {len(moves)} moves, visits={max_visits}")
 
-    try:
-        result = cb.call(lambda: engine.analyze_position(
-            moves=moves, board_size=board_size, komi=komi,
-            max_visits=max_visits, include_ownership=include_own,
-            initial_stones=initial_stones, initial_player=initial_player,
-        ))
+    result = _protected_engine_call(lambda: engine.analyze_position(
+        moves=moves, board_size=board_size, komi=komi,
+        max_visits=max_visits, include_ownership=include_own,
+        initial_stones=initial_stones, initial_player=initial_player,
+    ))
+    if result is not None:
         emit(Events.ANALYSIS, result)
-    except (CircuitOpenError, EngineNotRunningError,
-            EngineTimeoutError, EngineQueryError) as exc:
-        logger.warning(f"Analysis failed: {exc}")
-        _emit_engine_error(exc)
 
 
 # ── WebSocket event handlers ──────────────────────────────────────────────────
+
+@socketio.on_error_default
+def handle_socketio_error(exc):
+    """
+    Default Socket.IO error handler — catches exceptions that propagate
+    out of event handlers (notably AuthenticationError from require_auth).
+    """
+    if isinstance(exc, AuthenticationError):
+        emit(Events.ERROR, {"message": str(exc), "code": 401})
+    else:
+        logger.error(f"Unhandled Socket.IO error: {exc}")
+        emit(Events.ERROR, {"message": "Internal server error"})
+
 
 @socketio.on("connect")
 def handle_connect():
@@ -309,19 +338,15 @@ def handle_play_ai(data):
     initial_stones = data.get("initialStones", None)
     initial_player = data.get("initialPlayer", None)
 
-    try:
-        result = cb.call(lambda: engine.analyze_position(
-            moves=moves, board_size=board_size, komi=komi,
-            max_visits=max_visits,
-            initial_stones=initial_stones, initial_player=initial_player,
-        ))
-    except (CircuitOpenError, EngineNotRunningError,
-            EngineTimeoutError, EngineQueryError) as exc:
-        logger.warning(f"play_ai failed: {exc}")
-        _emit_engine_error(exc)
+    result = _protected_engine_call(lambda: engine.analyze_position(
+        moves=moves, board_size=board_size, komi=komi,
+        max_visits=max_visits,
+        initial_stones=initial_stones, initial_player=initial_player,
+    ))
+    if result is None:
         return
 
-    if result and result.get("moves"):
+    if result.get("moves"):
         best_move = result["moves"][0]
         emit(Events.AI_MOVE, {
             "move":      best_move["move"],
