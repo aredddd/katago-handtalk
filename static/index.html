@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-CN" id="html-root">
+<html lang="en" id="html-root">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -19,7 +19,7 @@
             <div id="header-right">
                 <button id="btn-lang" class="btn-lang" title="Switch language">中/EN</button>
                 <div id="auth-area">
-                    <button id="btn-show-login" class="btn-auth">登录 / Sign in</button>
+                    <button id="btn-show-login" class="btn-auth">Sign in</button>
                 </div>
             </div>
         </header>
@@ -63,19 +63,19 @@
             <div id="panel">
                 <div class="panel-section">
                     <div class="mode-buttons">
-                        <button class="mode-btn active" data-mode="free-play">♟ <span class="i18n" data-key="freePlay">摆谱</span></button>
-                        <button class="mode-btn" data-mode="play-black">⚫ <span class="i18n" data-key="playBlack">执黑</span></button>
-                        <button class="mode-btn" data-mode="play-white">⚪ <span class="i18n" data-key="playWhite">执白</span></button>
-                        <button class="mode-btn" data-mode="ai-vs-ai">🤖 <span class="i18n" data-key="aiVsAi">AI对弈</span></button>
+                        <button class="mode-btn active" data-mode="free-play">♟ <span class="i18n" data-key="freePlay">Free play</span></button>
+                        <button class="mode-btn" data-mode="play-black">⚫ <span class="i18n" data-key="playBlack">Play black</span></button>
+                        <button class="mode-btn" data-mode="play-white">⚪ <span class="i18n" data-key="playWhite">Play white</span></button>
+                        <button class="mode-btn" data-mode="ai-vs-ai">🤖 <span class="i18n" data-key="aiVsAi">AI vs AI</span></button>
                     </div>
                     <div class="action-buttons" style="margin-top:8px">
-                        <button id="btn-undo">↩ <span class="i18n" data-key="undo">悔棋</span></button>
-                        <button id="btn-pass">⏭ <span class="i18n" data-key="pass">虚手</span></button>
-                        <button id="btn-analyze">🔍 <span class="i18n" data-key="analyze">分析</span></button>
-                        <button id="btn-new-game">🔄 <span class="i18n" data-key="newGame">新对局</span></button>
+                        <button id="btn-undo">↩ <span class="i18n" data-key="undo">Undo</span></button>
+                        <button id="btn-pass">⏭ <span class="i18n" data-key="pass">Pass</span></button>
+                        <button id="btn-analyze">🔍 <span class="i18n" data-key="analyze">Analyze</span></button>
+                        <button id="btn-new-game">🔄 <span class="i18n" data-key="newGame">New game</span></button>
                     </div>
                     <div class="action-buttons" style="margin-top:4px">
-                        <button id="btn-camera">📷 <span class="i18n" data-key="recognize">拍照识别</span></button>
+                        <button id="btn-camera">📷 <span class="i18n" data-key="recognize">Photo</span></button>
                         <input type="file" id="camera-input" accept="image/*" capture="environment" style="display:none">
                     </div>
                 </div>
@@ -83,12 +83,12 @@
                 <!-- Settings -->
                 <div class="panel-section collapsible" id="settings-section">
                     <h3 class="section-toggle" data-target="settings-body">
-                        ⚙ <span class="i18n" data-key="settings">设置</span>
+                        ⚙ <span class="i18n" data-key="settings">Settings</span>
                         <span class="toggle-icon">▾</span>
                     </h3>
                     <div id="settings-body" class="section-body">
                         <div class="setting-row">
-                            <label for="board-size"><span class="i18n" data-key="boardSize">棋盘</span></label>
+                            <label for="board-size"><span class="i18n" data-key="boardSize">Board</span></label>
                             <select id="board-size">
                                 <option value="19" selected>19×19</option>
                                 <option value="13">13×13</option>
@@ -96,7 +96,7 @@
                             </select>
                         </div>
                         <div class="setting-row">
-                            <label for="komi"><span class="i18n" data-key="komi">贴目</span></label>
+                            <label for="komi"><span class="i18n" data-key="komi">Komi</span></label>
                             <select id="komi">
                                 <option value="7.5" selected>7.5</option>
                                 <option value="6.5">6.5</option>
@@ -105,7 +105,7 @@
                             </select>
                         </div>
                         <div class="setting-row">
-                            <label for="max-visits"><span class="i18n" data-key="visits">搜索量</span></label>
+                            <label for="max-visits"><span class="i18n" data-key="visits">Visits</span></label>
                             <select id="max-visits">
                                 <option value="100">100</option>
                                 <option value="300">300</option>
@@ -116,26 +116,26 @@
                             </select>
                         </div>
                         <div class="setting-row">
-                            <label><input type="checkbox" id="show-analysis" checked> <span class="i18n" data-key="showAnalysis">分析</span></label>
-                            <label><input type="checkbox" id="show-ownership"> <span class="i18n" data-key="showOwnership">目数</span></label>
-                            <label><input type="checkbox" id="show-move-number"> <span class="i18n" data-key="showMoveNum">手数</span></label>
+                            <label><input type="checkbox" id="show-analysis" checked> <span class="i18n" data-key="showAnalysis">Analysis</span></label>
+                            <label><input type="checkbox" id="show-ownership"> <span class="i18n" data-key="showOwnership">Ownership</span></label>
+                            <label><input type="checkbox" id="show-move-number"> <span class="i18n" data-key="showMoveNum">Move #</span></label>
                         </div>
                     </div>
                 </div>
 
                 <!-- Suggestions -->
                 <div class="panel-section" id="suggestions-section">
-                    <h3><span class="i18n" data-key="suggestions">推荐走法</span></h3>
+                    <h3><span class="i18n" data-key="suggestions">Suggestions</span></h3>
                     <div id="suggestions-list">
-                        <p class="placeholder i18n" data-key="suggestPlaceholder">落子后将显示分析</p>
+                        <p class="placeholder i18n" data-key="suggestPlaceholder">Analysis shown after a move</p>
                     </div>
                 </div>
 
                 <!-- PV -->
                 <div class="panel-section" id="pv-section">
-                    <h3><span class="i18n" data-key="mainLine">主要变化</span></h3>
+                    <h3><span class="i18n" data-key="mainLine">Main line</span></h3>
                     <div id="pv-display">
-                        <p class="placeholder i18n" data-key="pvPlaceholder">点击推荐走法查看变化</p>
+                        <p class="placeholder i18n" data-key="pvPlaceholder">Click a suggestion to view the line</p>
                     </div>
                 </div>
             </div>
@@ -145,17 +145,17 @@
         <div id="recognize-modal" class="modal-overlay" style="display:none">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h3>📷 <span class="i18n" data-key="recognize">拍照识别</span></h3>
+                    <h3>📷 <span class="i18n" data-key="recognize">Photo</span></h3>
                     <button id="modal-close" class="modal-close-btn">✕</button>
                 </div>
                 <div class="modal-body">
                     <div id="recognize-loading" style="display:none">
-                        <p><span class="i18n" data-key="recognizing">🤖 AI 正在识别棋盘，请稍候...</span></p>
+                        <p><span class="i18n" data-key="recognizing">🤖 Recognising board, please wait…</span></p>
                     </div>
                     <div id="recognize-result" style="display:none">
                         <div class="recognize-preview-row">
                             <div class="recognize-preview-col">
-                                <p class="preview-label"><span class="i18n" data-key="recognizeResult">识别结果</span></p>
+                                <p class="preview-label"><span class="i18n" data-key="recognizeResult">Recognition result</span></p>
                                 <canvas id="recognize-board-canvas" width="380" height="380"></canvas>
                             </div>
                         </div>
@@ -163,15 +163,15 @@
                             <span id="recognize-confidence"></span>
                             <span id="recognize-auto-status"></span>
                         </div>
-                        <p class="recognize-hint"><span class="i18n" data-key="recognizeHint">点击棋盘修正：空 → ⚫ → ⚪ → 空</span></p>
+                        <p class="recognize-hint"><span class="i18n" data-key="recognizeHint">Click to correct: empty → ⚫ → ⚪ → empty</span></p>
                         <div class="recognize-actions">
-                            <button id="btn-recognize-confirm" class="btn-primary">✅ <span class="i18n" data-key="confirmLoad">确认加载</span></button>
-                            <button id="btn-recognize-retry">📷 <span class="i18n" data-key="retakePhoto">重新拍照</span></button>
+                            <button id="btn-recognize-confirm" class="btn-primary">✅ <span class="i18n" data-key="confirmLoad">Load board</span></button>
+                            <button id="btn-recognize-retry">📷 <span class="i18n" data-key="retakePhoto">Retake photo</span></button>
                             <div class="recognize-color-select">
-                                <label><span class="i18n" data-key="nextPlayer">下一手：</span></label>
+                                <label><span class="i18n" data-key="nextPlayer">Next to play:</span></label>
                                 <select id="recognize-next-player">
-                                    <option value="1">⚫ <span class="i18n" data-key="black">黑</span></option>
-                                    <option value="2">⚪ <span class="i18n" data-key="white">白</span></option>
+                                    <option value="1">⚫ <span class="i18n" data-key="black">B</span></option>
+                                    <option value="2">⚪ <span class="i18n" data-key="white">W</span></option>
                                 </select>
                             </div>
                         </div>
@@ -186,10 +186,10 @@
                 <div class="modal-header">
                     <div class="auth-tabs">
                         <button class="auth-tab active" id="tab-login">
-                            <span class="i18n" data-key="signIn">登录</span>
+                            <span class="i18n" data-key="signIn">Sign in</span>
                         </button>
                         <button class="auth-tab" id="tab-register">
-                            <span class="i18n" data-key="register">注册</span>
+                            <span class="i18n" data-key="register">Register</span>
                         </button>
                     </div>
                     <button id="auth-modal-close" class="modal-close-btn">✕</button>
@@ -197,11 +197,11 @@
                 <div class="modal-body">
                     <div id="auth-error" class="auth-error" style="display:none"></div>
                     <form id="auth-form" class="auth-form" autocomplete="on">
-                        <label for="auth-username-input" class="i18n" data-key="username">用户名</label>
+                        <label for="auth-username-input" class="i18n" data-key="username">Username</label>
                         <input type="text" id="auth-username-input" autocomplete="username">
-                        <label for="auth-password-input" class="i18n" data-key="password">密码</label>
+                        <label for="auth-password-input" class="i18n" data-key="password">Password</label>
                         <input type="password" id="auth-password-input" autocomplete="current-password">
-                        <button type="submit" id="auth-submit" class="btn-primary i18n" data-key="signIn">登录</button>
+                        <button type="submit" id="auth-submit" class="btn-primary i18n" data-key="signIn">Sign in</button>
                     </form>
                 </div>
             </div>
