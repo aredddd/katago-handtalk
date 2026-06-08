@@ -140,10 +140,10 @@
         },
     };
 
-    let currentLang = localStorage.getItem("lang") || "zh";
+    let currentLang = localStorage.getItem("lang") || "en";
 
     function t(key) {
-        return (STRINGS[currentLang] || STRINGS.zh)[key] || key;
+        return (STRINGS[currentLang] || STRINGS.en)[key] || key;
     }
 
     function applyTranslations() {
