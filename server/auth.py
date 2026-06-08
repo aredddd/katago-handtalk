@@ -57,6 +57,11 @@ def _token_from_request() -> str:
     auth = request.headers.get("Authorization", "")
     return auth[7:] if auth.startswith("Bearer ") else ""
 
+
+def current_username() -> str | None:
+    """Return the username from the request's Bearer token, or None."""
+    return decode_token(_token_from_request())
+
 # ── Proxy decorators ──────────────────────────────────────────────────────────
 
 def require_auth(f):
