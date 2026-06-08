@@ -1,6 +1,6 @@
 /**
- * GoBoard - 围棋棋盘渲染与交互引擎
- * 支持 Canvas 绘制、触摸操作、分析可视化
+ * GoBoard — Go board rendering and interaction engine.
+ * Supports Canvas drawing, touch input and analysis visualization.
  */
 class GoBoard {
     constructor(canvasId, size = 19) {
@@ -8,51 +8,51 @@ class GoBoard {
         this.ctx = this.canvas.getContext("2d");
         this.size = size;
 
-        // 棋盘数据: 0=空, 1=黑, 2=白
+        // Board data: 0=empty, 1=black, 2=white
         this.board = this.createEmptyBoard();
-        this.moves = [];            // 当前视图的棋步 (slice of fullMoveHistory)
-        this.fullMoveHistory = [];   // 完整棋步历史 [["B","D4"], ...]
-        this.viewIndex = 0;          // 当前浏览位置 (0=空盘, max=最新)
-        this.lastMove = null;        // 最后一手位置 {x, y}
-        this.onNavigate = null;      // 导航回调 (viewIndex, totalMoves)
+        this.moves = [];            // moves in the current view (slice of fullMoveHistory)
+        this.fullMoveHistory = [];   // full move history [["B","D4"], ...]
+        this.viewIndex = 0;          // current view position (0=empty board, max=latest)
+        this.lastMove = null;        // last move position {x, y}
+        this.onNavigate = null;      // navigation callback (viewIndex, totalMoves)
 
-        // 显示相关
+        // Display
         this.cellSize = 0;
         this.padding = 0;
         this.boardOriginX = 0;
         this.boardOriginY = 0;
 
-        // 分析数据
+        // Analysis data
         this.analysisData = null;
         this.showAnalysis = true;
         this.showOwnership = false;
         this.showMoveNumbers = false;
         this.ownershipData = null;
-        this.hoveredCandidateIdx = -1; // 鼠标悬停的候选走法索引
-        this.selectedCandidateIdx = -1; // 点击选中的候选（手机用）
-        this.onCandidateHover = null; // 回调函数
+        this.hoveredCandidateIdx = -1; // index of the candidate move under the mouse
+        this.selectedCandidateIdx = -1; // clicked/selected candidate (mobile)
+        this.onCandidateHover = null; // callback
 
-        // 交互
+        // Interaction
         this.hoverPos = null;
-        this.pendingMovePos = null;  // 手机端两步确认：第一次点击的预览位置
-        this.currentPlayer = 1; // 1=黑, 2=白
-        this.initialStones = null; // 识别/摆放的初始棋子 [["B","D4"], ...]
+        this.pendingMovePos = null;  // mobile two-step confirmation: preview position of the first tap
+        this.currentPlayer = 1; // 1=black, 2=white
+        this.initialStones = null; // recognized/placed initial stones [["B","D4"], ...]
         this.onMoveCallback = null;
         this.isMobile = window.innerWidth <= 768;
 
-        this._touchMovedSignificantly = false; // 区分拖拽和点击
+        this._touchMovedSignificantly = false; // distinguish a drag from a tap
 
-        // 预加载音效（避免每次落子都从服务器请求）
+        // Preload sounds (avoid requesting them from the server on every move)
         this._stoneSounds = [];
         this._captureSound = null;
         this._preloadSounds();
 
-        // 初始化
+        // Init
         this._initSize();
         this._bindEvents();
         this.draw();
 
-        // 窗口大小变化时重绘
+        // Redraw on window resize
         window.addEventListener("resize", () => {
             this.isMobile = window.innerWidth <= 768;
             this._initSize();
@@ -85,23 +85,23 @@ class GoBoard {
         const container = this.canvas.parentElement;
         const isMobile = window.innerWidth <= 768;
         const headerH = document.getElementById('header')?.offsetHeight || 52;
-        // 导航条 + 胜率条的高度预估
+        // Estimated height of the nav bar + winrate strip
         const navH = 80; // nav buttons + slider + winrate strip
 
         let boardPixels;
 
         if (isMobile) {
-            // 手机竖屏：宽度撑满
+            // Mobile portrait: fill the width
             boardPixels = window.innerWidth - 12;
         } else {
-            // 桌面/大屏：棋盘为正方形，取可用高度和可用宽度中较小值
-            // 可用高度 = 视口高度 - header - nav区域 - padding
+            // Desktop / large screen: square board, min of available height and width.
+            // available height = viewport height - header - nav area - padding
             const availH = window.innerHeight - headerH - navH - 32;
-            // 可用宽度 = board-area 的宽度（flex布局已减去panel宽度和gap）
+            // available width = board-area width (flex already subtracts panel width and gap)
             const boardArea = document.getElementById('board-area');
             let availW = boardArea ? boardArea.clientWidth : container.clientWidth;
             if (availW < 100) {
-                // 容器还没渲染，估算
+                // Container not rendered yet — estimate
                 const panelW = window.innerWidth >= 2400 ? 460 : (window.innerWidth >= 1600 ? 380 : 320);
                 availW = window.innerWidth - panelW - 16 - 32;
             }
@@ -123,9 +123,9 @@ class GoBoard {
         this.boardOriginY = this.padding;
     }
 
-    // ============== 坐标转换 ==============
+    // ============== Coordinate conversion ==============
 
-    /** 将触摸/鼠标的屏幕坐标转为 canvas 逻辑坐标（归一化，兼容浏览器缩放） */
+    /** Convert touch/mouse screen coords to canvas logical coords (normalized, zoom-safe). */
     _screenToCanvas(clientX, clientY) {
         const rect = this.canvas.getBoundingClientRect();
         const dpr = window.devicePixelRatio || 1;
@@ -137,7 +137,7 @@ class GoBoard {
         };
     }
 
-    /** 棋盘坐标 -> 像素坐标 */
+    /** Board coords -> pixel coords */
     boardToPixel(x, y) {
         return {
             px: this.boardOriginX + x * this.cellSize,
@@ -145,7 +145,7 @@ class GoBoard {
         };
     }
 
-    /** 像素坐标 -> 棋盘坐标 (带吸附) */
+    /** Pixel coords -> board coords (with snapping) */
     pixelToBoard(px, py) {
         const x = Math.round((px - this.boardOriginX) / this.cellSize);
         const y = Math.round((py - this.boardOriginY) / this.cellSize);
@@ -155,7 +155,7 @@ class GoBoard {
         return null;
     }
 
-    /** 从当前棋盘状态生成 initialStones 并保存 */
+    /** Build and store initialStones from the current board state. */
     setInitialStonesFromBoard() {
         const stones = [];
         for (let y = 0; y < this.size; y++) {
@@ -168,15 +168,15 @@ class GoBoard {
         this.initialStones = stones.length > 0 ? stones : null;
     }
 
-    /** 棋盘坐标 -> KataGo 坐标 (如 "D4") */
+    /** Board coords -> KataGo coords (e.g. "D4") */
     boardToGtp(x, y) {
-        // GTP: 列用 A-T (跳过I), 行从下往上 1-19
+        // GTP: columns A-T (skip I), rows bottom-up 1-19
         const col = "ABCDEFGHJKLMNOPQRST"[x];
         const row = this.size - y;
         return col + row;
     }
 
-    /** KataGo 坐标 -> 棋盘坐标 */
+    /** KataGo coords -> board coords */
     gtpToBoard(gtp) {
         if (!gtp || gtp.toLowerCase() === "pass") return null;
         const col = gtp[0].toUpperCase();
@@ -187,9 +187,9 @@ class GoBoard {
         return { x, y };
     }
 
-    // ============== 围棋规则 ==============
+    // ============== Go rules ==============
 
-    /** 检查一个位置的气 */
+    /** Get the liberties of the group at a position. */
     _getGroup(board, x, y) {
         const color = board[y][x];
         if (color === 0) return { stones: [], liberties: 0 };
@@ -208,7 +208,7 @@ class GoBoard {
 
             if (board[cy][cx] === color) {
                 stones.push({ x: cx, y: cy });
-                // 检查四个方向
+                // Check the four directions
                 for (const [dx, dy] of [[-1,0],[1,0],[0,-1],[0,1]]) {
                     const nx = cx + dx, ny = cy + dy;
                     if (nx < 0 || nx >= this.size || ny < 0 || ny >= this.size) continue;
@@ -228,7 +228,7 @@ class GoBoard {
         return { stones, liberties };
     }
 
-    /** 尝试在 (x, y) 落子，返回是否成功 */
+    /** Try to play at (x, y); return whether it succeeded. */
     tryMove(x, y) {
         if (x < 0 || x >= this.size || y < 0 || y >= this.size) return false;
         if (this.board[y][x] !== 0) return false;
@@ -236,11 +236,11 @@ class GoBoard {
         const color = this.currentPlayer;
         const opponent = color === 1 ? 2 : 1;
 
-        // 临时落子
+        // Tentative move
         const tempBoard = this.board.map(r => [...r]);
         tempBoard[y][x] = color;
 
-        // 检查是否提掉对方的子
+        // Check for captures of opponent stones
         let captured = [];
         for (const [dx, dy] of [[-1,0],[1,0],[0,-1],[0,1]]) {
             const nx = x + dx, ny = y + dy;
@@ -256,13 +256,13 @@ class GoBoard {
             }
         }
 
-        // 检查自杀手
+        // Check for suicide
         const selfGroup = this._getGroup(tempBoard, x, y);
         if (selfGroup.liberties === 0) {
-            return false; // 禁着点
+            return false; // illegal point
         }
 
-        // 落子成功 — 播放音效（有提子时播放提子音，否则播放落子音）
+        // Move played — play a sound (capture sound if stones were captured, else stone sound)
         if (captured.length > 0) {
             this._playCaptureSound();
         } else {
@@ -272,7 +272,7 @@ class GoBoard {
         const colorStr = color === 1 ? "B" : "W";
         const gtpCoord = this.boardToGtp(x, y);
 
-        // 如果在历史中间落子，截断后续
+        // If playing in the middle of history, truncate the rest
         if (this.viewIndex < this.fullMoveHistory.length) {
             this.fullMoveHistory = this.fullMoveHistory.slice(0, this.viewIndex);
         }
@@ -283,7 +283,7 @@ class GoBoard {
         this.lastMove = { x, y };
         this.currentPlayer = opponent;
 
-        // 清除旧分析数据和待确认
+        // Clear stale analysis data and pending confirmation
         this.analysisData = null;
         this.ownershipData = null;
         this.pendingMovePos = null;
@@ -306,7 +306,7 @@ class GoBoard {
         this._fireNavigate();
     }
 
-    /** 悔棋 - 从历史移除最后一步 */
+    /** Undo — remove the last move from history. */
     undo() {
         if (this.fullMoveHistory.length === 0) return false;
         this.fullMoveHistory.pop();
@@ -315,9 +315,9 @@ class GoBoard {
         return true;
     }
 
-    // ============== 棋局导航 (KaTrain 风格) ==============
+    // ============== Game navigation (KaTrain style) ==============
 
-    /** 跳转到指定手数 */
+    /** Jump to a given move number. */
     navigateTo(idx) {
         idx = Math.max(0, Math.min(idx, this.fullMoveHistory.length));
         if (idx === this.viewIndex) return;
@@ -325,32 +325,32 @@ class GoBoard {
         this._rebuildToView();
     }
 
-    /** 后退 n 步 */
+    /** Go back n moves. */
     navigateBack(n = 1) {
         this.navigateTo(this.viewIndex - n);
     }
 
-    /** 前进 n 步 */
+    /** Go forward n moves. */
     navigateForward(n = 1) {
         this.navigateTo(this.viewIndex + n);
     }
 
-    /** 跳到开头 */
+    /** Jump to the start. */
     navigateToStart() {
         this.navigateTo(0);
     }
 
-    /** 跳到最新 */
+    /** Jump to the latest move. */
     navigateToEnd() {
         this.navigateTo(this.fullMoveHistory.length);
     }
 
-    /** 当前是否在最新手 */
+    /** Whether we are at the latest move. */
     isAtEnd() {
         return this.viewIndex === this.fullMoveHistory.length;
     }
 
-    /** 从头重放到 viewIndex 位置 */
+    /** Replay from the start up to viewIndex. */
     _rebuildToView() {
         const target = this.fullMoveHistory.slice(0, this.viewIndex);
         this.board = this.createEmptyBoard();
@@ -360,14 +360,14 @@ class GoBoard {
 
         for (const [color, gtp] of target) {
             if (gtp === "pass") {
-                // 内联 pass 避免触发 fullMoveHistory 修改
+                // Inline pass to avoid mutating fullMoveHistory
                 this.moves.push([this.currentPlayer === 1 ? "B" : "W", "pass"]);
                 this.currentPlayer = this.currentPlayer === 1 ? 2 : 1;
                 this.lastMove = null;
             } else {
                 const pos = this.gtpToBoard(gtp);
                 if (pos) {
-                    // 内联 tryMove 核心逻辑，不修改 fullMoveHistory
+                    // Inline the tryMove core logic, without mutating fullMoveHistory
                     this._replayMove(pos.x, pos.y);
                 }
             }
@@ -378,14 +378,14 @@ class GoBoard {
         this._fireNavigate();
     }
 
-    /** 重放单步（不修改 fullMoveHistory） */
+    /** Replay a single move (without mutating fullMoveHistory). */
     _replayMove(x, y) {
         if (this.board[y][x] !== 0) return;
         const color = this.currentPlayer;
         const opponent = color === 1 ? 2 : 1;
         this.board[y][x] = color;
 
-        // 提子
+        // Captures
         for (const [dx, dy] of [[-1,0],[1,0],[0,-1],[0,1]]) {
             const nx = x + dx, ny = y + dy;
             if (nx < 0 || nx >= this.size || ny < 0 || ny >= this.size) continue;
@@ -403,14 +403,14 @@ class GoBoard {
         this.currentPlayer = opponent;
     }
 
-    /** 触发导航回调 */
+    /** Fire the navigation callback. */
     _fireNavigate() {
         if (this.onNavigate) {
             this.onNavigate(this.viewIndex, this.fullMoveHistory.length);
         }
     }
 
-    // ============== 绘制 ==============
+    // ============== Drawing ==============
 
     draw() {
         const ctx = this.ctx;
@@ -418,7 +418,7 @@ class GoBoard {
         const w = this.canvas.width / dpr;
         const h = this.canvas.height / dpr;
 
-        // 重置变换，清空全屏
+        // Reset transform, clear the whole canvas
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
         ctx.clearRect(0, 0, w, h);
 
@@ -441,7 +441,7 @@ class GoBoard {
             this._drawHover();
         }
 
-        // 手机端两步确认预览
+        // Mobile two-step confirmation preview
         if (this.pendingMovePos && this.board[this.pendingMovePos.y][this.pendingMovePos.x] === 0) {
             this._drawPendingMove();
         }
@@ -457,11 +457,11 @@ class GoBoard {
 
     _drawBoardBackground(w, h) {
         const ctx = this.ctx;
-        // 木纹背景
+        // Wood-grain background
         ctx.fillStyle = "#dcb35c";
         ctx.fillRect(0, 0, w, h);
 
-        // 添加木纹纹理
+        // Add a wood-grain texture
         ctx.fillStyle = "rgba(0,0,0,0.03)";
         for (let i = 0; i < h; i += 3) {
             ctx.fillRect(0, i, w, 1);
@@ -522,11 +522,11 @@ class GoBoard {
         const offset = this.cellSize * 0.7;
 
         for (let i = 0; i < this.size; i++) {
-            // 顶部/底部列标
+            // Top/bottom column labels
             const { px } = this.boardToPixel(i, 0);
             ctx.fillText(letters[i], px, this.boardOriginY - offset);
 
-            // 左侧/右侧行标
+            // Left/right row labels
             const { py } = this.boardToPixel(0, i);
             ctx.fillText(String(this.size - i), this.boardOriginX - offset, py);
         }
@@ -542,13 +542,13 @@ class GoBoard {
                 const { px, py } = this.boardToPixel(x, y);
                 const isBlack = this.board[y][x] === 1;
 
-                // 阴影
+                // Shadow
                 ctx.fillStyle = "rgba(0,0,0,0.3)";
                 ctx.beginPath();
                 ctx.arc(px + 1.5, py + 1.5, r, 0, Math.PI * 2);
                 ctx.fill();
 
-                // 棋子
+                // Stone
                 if (isBlack) {
                     const gradient = ctx.createRadialGradient(px - r*0.3, py - r*0.3, r*0.1, px, py, r);
                     gradient.addColorStop(0, "#555");
@@ -600,7 +600,7 @@ class GoBoard {
         ctx.globalAlpha = 1.0;
     }
 
-    /** 手机端两步确认：画待确认的半透明棋子 + 发光描边 */
+    /** Mobile two-step confirmation: draw the semi-transparent pending stone + glowing outline. */
     _drawPendingMove() {
         const ctx = this.ctx;
         const { x, y } = this.pendingMovePos;
@@ -608,7 +608,7 @@ class GoBoard {
         const r = this.cellSize * 0.44;
         const isBlack = this.currentPlayer === 1;
 
-        // 半透明棋子（比 hover 更不透明）
+        // Semi-transparent stone (more opaque than hover)
         ctx.globalAlpha = 0.7;
         ctx.fillStyle = isBlack ? "#222" : "#e8e8e8";
         ctx.beginPath();
@@ -616,7 +616,7 @@ class GoBoard {
         ctx.fill();
         ctx.globalAlpha = 1.0;
 
-        // 青色呼吸描边，提示"再点一次确认"
+        // Cyan outline, hinting "tap again to confirm"
         ctx.strokeStyle = "rgba(0, 220, 255, 0.85)";
         ctx.lineWidth = Math.max(2, this.cellSize * 0.07);
         ctx.beginPath();
@@ -635,7 +635,7 @@ class GoBoard {
         const cs = this.cellSize;
         const isMobile = this.isMobile;
 
-        // 画每个候选走法圆圈（从后往前画，best 在最上层）
+        // Draw each candidate circle (back to front, best on top)
         for (let i = candidates.length - 1; i >= 0; i--) {
             const mi = candidates[i];
             const pos = this.gtpToBoard(mi.move);
@@ -643,33 +643,33 @@ class GoBoard {
 
             const { px, py } = this.boardToPixel(pos.x, pos.y);
 
-            // 圆圈大小：统一最大尺寸，仅靠颜色区分
+            // Circle size: uniform max size, distinguished only by color
             const r = cs * 0.46;
 
-            // KaTrain 颜色：基于与最优的目差差距，从绿到紫
+            // KaTrain color: based on the score-lead gap to the best move, green to purple
             const scoreDiff = Math.abs(mi.scoreLead - bestSL);
             const color = this._candidateColor(scoreDiff, i);
 
-            // 阴影
+            // Shadow
             ctx.fillStyle = "rgba(0,0,0,0.25)";
             ctx.beginPath();
             ctx.arc(px + 1, py + 1, r, 0, Math.PI * 2);
             ctx.fill();
 
-            // 圆圈填充
+            // Circle fill
             ctx.fillStyle = color;
             ctx.beginPath();
             ctx.arc(px, py, r, 0, Math.PI * 2);
             ctx.fill();
 
-            // 最优解：青色描边（KaTrain 风格）
+            // Best move: cyan outline (KaTrain style)
             if (i === 0) {
                 ctx.strokeStyle = "rgba(0, 220, 255, 0.9)";
                 ctx.lineWidth = Math.max(2, cs * 0.06);
                 ctx.stroke();
             }
 
-            // hover 高亮描边
+            // Hover highlight outline
             const isActive = (i === this.hoveredCandidateIdx);
             if (isActive && i !== 0) {
                 ctx.strokeStyle = "#fff";
@@ -677,51 +677,51 @@ class GoBoard {
                 ctx.stroke();
             }
 
-            // === 文字：目差 + 访问量 (KaTrain 风格) ===
+            // === Text: score diff + visits (KaTrain style) ===
             this._drawCandidateText(px, py, r, mi, bestSL, isMobile);
         }
     }
 
-    /** KaTrain 颜色：绿 → 黄 → 橙 → 红 → 紫 */
+    /** KaTrain color: green -> yellow -> orange -> red -> purple */
     _candidateColor(scoreDiff, index) {
-        // scoreDiff = 与最优解的目差绝对值
-        // 映射到 0~1 范围, diff=0 → 0, diff≥5 → 1
+        // scoreDiff = absolute score-lead gap to the best move.
+        // Map to the 0~1 range: diff=0 -> 0, diff>=5 -> 1
         const t = Math.min(scoreDiff / 5.0, 1.0);
 
-        // KaTrain 渐变: 绿(120°) → 黄(60°) → 橙(30°) → 红(0°) → 紫(300°)
+        // KaTrain gradient: green(120) -> yellow(60) -> orange(30) -> red(0) -> purple(300)
         let h, s, l;
         if (t < 0.25) {
-            // 绿 → 黄绿
-            h = 120 - t * 4 * 60;  // 120 → 60
-            s = 70 + t * 4 * 10;   // 70 → 80
-            l = 42 + t * 4 * 5;    // 42 → 47
+            // green -> yellow-green
+            h = 120 - t * 4 * 60;  // 120 -> 60
+            s = 70 + t * 4 * 10;   // 70 -> 80
+            l = 42 + t * 4 * 5;    // 42 -> 47
         } else if (t < 0.5) {
-            // 黄绿 → 橙
+            // yellow-green -> orange
             const t2 = (t - 0.25) * 4;
-            h = 60 - t2 * 30;      // 60 → 30
+            h = 60 - t2 * 30;      // 60 -> 30
             s = 80;
-            l = 47 + t2 * 3;       // 47 → 50
+            l = 47 + t2 * 3;       // 47 -> 50
         } else if (t < 0.75) {
-            // 橙 → 红
+            // orange -> red
             const t3 = (t - 0.5) * 4;
-            h = 30 - t3 * 30;      // 30 → 0
+            h = 30 - t3 * 30;      // 30 -> 0
             s = 75;
-            l = 48 - t3 * 5;       // 48 → 43
+            l = 48 - t3 * 5;       // 48 -> 43
         } else {
-            // 红 → 紫
+            // red -> purple
             const t4 = (t - 0.75) * 4;
-            h = 360 - t4 * 60;     // 360(=0) → 300
-            s = 65 + t4 * 10;      // 65 → 75
-            l = 40 - t4 * 5;       // 40 → 35
+            h = 360 - t4 * 60;     // 360(=0) -> 300
+            s = 65 + t4 * 10;      // 65 -> 75
+            l = 40 - t4 * 5;       // 40 -> 35
         }
 
         return `hsla(${h}, ${s}%, ${l}%, 0.82)`;
     }
 
-    /** 画候选走法圈内文字：目差 + 访问量 (KaTrain 风格) */
+    /** Draw the in-circle text for a candidate: score diff + visits (KaTrain style). */
     _drawCandidateText(px, py, r, mi, bestSL, isMobile) {
         const ctx = this.ctx;
-        const scoreDiff = mi.scoreLead - bestSL; // 负数=比最优差
+        const scoreDiff = mi.scoreLead - bestSL; // negative = worse than best
         const diffStr = scoreDiff >= 0 ? `+${scoreDiff.toFixed(1)}` : scoreDiff.toFixed(1);
         const visits = mi.visits;
         const visitStr = visits >= 10000 ? (visits / 1000).toFixed(1) + "k" :
@@ -733,12 +733,12 @@ class GoBoard {
         ctx.fillStyle = "#fff";
 
         if (isMobile) {
-            // 手机端：只显示目差
+            // Mobile: show only the score diff
             const fontSize = Math.max(8, r * 0.65);
             ctx.font = `bold ${fontSize}px sans-serif`;
             ctx.fillText(diffStr, px, py);
         } else {
-            // 电脑端：上行目差，下行访问量
+            // Desktop: score diff on top, visits below
             const f1 = Math.max(8, r * 0.58);
             const f2 = Math.max(6, r * 0.40);
             const gap = f1 * 0.32;
@@ -752,7 +752,7 @@ class GoBoard {
         }
     }
 
-    /** 棋盘右上角显示最优解分数（类 KaTrain） */
+    /** Show the best-move score in the top-right corner (KaTrain-like). */
     _drawBestMoveOverlay() {
         if (!this.analysisData || !this.analysisData.moves || this.analysisData.moves.length === 0) return;
         const best = this.analysisData.moves[0];
@@ -771,7 +771,7 @@ class GoBoard {
         const px = w - 8;
         const py = 14;
 
-        // 背景
+        // Background
         ctx.fillStyle = "rgba(0, 0, 0, 0.55)";
         const boxW = fontSize * 3.5;
         const boxH = fontSize + subFontSize + 8;
@@ -785,20 +785,20 @@ class GoBoard {
         }
         ctx.fill();
 
-        // 主分数
+        // Main score
         ctx.textAlign = "right";
         ctx.textBaseline = "top";
         ctx.font = `bold ${fontSize}px sans-serif`;
         ctx.fillStyle = sl >= 0 ? "#6f6" : "#f88";
         ctx.fillText(text, px, py);
 
-        // 访问量
+        // Visits
         ctx.font = `${subFontSize}px sans-serif`;
         ctx.fillStyle = "rgba(255,255,255,0.6)";
         ctx.fillText(subText, px, py + fontSize + 2);
     }
 
-    /** 画 PV 变化线（类 KaTrain：半透明棋子 + 连线） */
+    /** Draw the PV line (KaTrain-like: semi-transparent stones + connector). */
     _drawPVLine(candidate) {
         if (!candidate.pv || candidate.pv.length < 1) return;
         const ctx = this.ctx;
@@ -807,7 +807,7 @@ class GoBoard {
         const maxPV = isMobile ? 5 : 10;
         const pv = candidate.pv.slice(0, maxPV);
 
-        // 确定起始颜色
+        // Determine the starting color
         let isBlack = this.currentPlayer === 1;
         const points = [];
 
@@ -821,7 +821,7 @@ class GoBoard {
 
         if (points.length < 1) return;
 
-        // 画连线
+        // Draw the connector
         ctx.strokeStyle = "rgba(255, 200, 0, 0.5)";
         ctx.lineWidth = Math.max(1.5, cs * 0.05);
         ctx.setLineDash([cs * 0.1, cs * 0.08]);
@@ -833,13 +833,13 @@ class GoBoard {
         ctx.stroke();
         ctx.setLineDash([]);
 
-        // 画半透明棋子 + 编号（跳过第一步，因为它就是候选点自身）
+        // Draw semi-transparent stones + numbers (skip the first move — it's the candidate point itself)
         for (let i = 1; i < points.length; i++) {
             const p = points[i];
             const r = cs * 0.38;
 
             ctx.globalAlpha = 0.55;
-            // 棋子
+            // Stone
             if (p.isBlack) {
                 ctx.fillStyle = "#222";
             } else {
@@ -849,13 +849,13 @@ class GoBoard {
             ctx.arc(p.px, p.py, r, 0, Math.PI * 2);
             ctx.fill();
 
-            // 描边
+            // Outline
             ctx.strokeStyle = p.isBlack ? "#000" : "#aaa";
             ctx.lineWidth = 0.8;
             ctx.stroke();
             ctx.globalAlpha = 1.0;
 
-            // 编号
+            // Number
             const fontSize = Math.max(8, r * 0.75);
             ctx.font = `bold ${fontSize}px sans-serif`;
             ctx.textAlign = "center";
@@ -872,7 +872,7 @@ class GoBoard {
         for (let y = 0; y < this.size; y++) {
             for (let x = 0; x < this.size; x++) {
                 const idx = y * this.size + x;
-                const val = this.ownershipData[idx]; // -1 (白) to +1 (黑)
+                const val = this.ownershipData[idx]; // -1 (white) to +1 (black)
                 if (Math.abs(val) < 0.1) continue;
 
                 const { px, py } = this.boardToPixel(x, y);
@@ -893,7 +893,7 @@ class GoBoard {
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
 
-        // 重新按历史记录回放来确定每个位置的编号
+        // Replay the history to determine each position's number
         const numberMap = {};
         for (let i = 0; i < this.moves.length; i++) {
             const [color, gtp] = this.moves[i];
@@ -906,7 +906,7 @@ class GoBoard {
 
         for (const [key, num] of Object.entries(numberMap)) {
             const [x, y] = key.split(",").map(Number);
-            if (this.board[y][x] === 0) continue; // 已被提走
+            if (this.board[y][x] === 0) continue; // already captured
 
             const { px, py } = this.boardToPixel(x, y);
             const isBlack = this.board[y][x] === 1;
@@ -917,16 +917,16 @@ class GoBoard {
         }
     }
 
-    // ============== 事件处理 ==============
+    // ============== Event handling ==============
 
     _bindEvents() {
-        // 鼠标/触摸移动 -> 预览 + 候选 hover
+        // Mouse/touch move -> preview + candidate hover
         this.canvas.addEventListener("mousemove", (e) => {
             const { cx, cy } = this._screenToCanvas(e.clientX, e.clientY);
             const pos = this.pixelToBoard(cx, cy);
             this.hoverPos = pos;
 
-            // 检测是否 hover 在候选走法上
+            // Detect whether hovering over a candidate move
             const oldIdx = this.hoveredCandidateIdx;
             this.hoveredCandidateIdx = this._hitTestCandidate(cx, cy);
             if (this.hoveredCandidateIdx !== oldIdx && this.onCandidateHover) {
@@ -946,11 +946,11 @@ class GoBoard {
             this.draw();
         });
 
-        // 点击 -> 落子（候选走法位置也直接落子，KaTrain 风格）
+        // Click -> play (clicking a candidate position plays there directly, KaTrain style)
         this.canvas.addEventListener("click", (e) => {
             const { cx, cy } = this._screenToCanvas(e.clientX, e.clientY);
 
-            // 如果点击在候选走法上，直接落子到该位置
+            // If clicking on a candidate move, play directly at that position
             const hitIdx = this._hitTestCandidate(cx, cy);
             if (hitIdx >= 0 && this.analysisData && this.analysisData.moves) {
                 const mi = this.analysisData.moves[hitIdx];
@@ -967,8 +967,9 @@ class GoBoard {
             }
         });
 
-        // ============== 触摸手势（两步确认落子） ==============
-        // 缩放由浏览器原生二指手势处理，这里只处理单指点击落子
+        // ============== Touch gestures (two-step confirmation) ==============
+        // Zoom is handled by the browser's native pinch gesture; here we only
+        // handle single-finger taps to play.
 
         let singleTouchStart = null;
 
@@ -993,20 +994,20 @@ class GoBoard {
         }, { passive: true });
 
         this.canvas.addEventListener("touchend", (e) => {
-            // 如果手指明显移动过（滚动/缩放），不算点击
+            // If the finger moved significantly (scroll/zoom), don't treat it as a tap
             if (this._touchMovedSignificantly) {
                 this._touchMovedSignificantly = false;
                 return;
             }
 
-            // 多指操作结束后不处理
+            // Ignore after a multi-touch gesture ends
             if (e.changedTouches.length !== 1 || e.touches.length > 0) return;
 
             e.preventDefault();
             const touch = e.changedTouches[0];
             const { cx, cy } = this._screenToCanvas(touch.clientX, touch.clientY);
 
-            // 候选走法：也走两步确认流程
+            // Candidate moves: also go through the two-step confirmation flow
             const hitIdx = this._hitTestCandidate(cx, cy);
             let pos;
             if (hitIdx >= 0 && this.analysisData && this.analysisData.moves) {
@@ -1019,7 +1020,7 @@ class GoBoard {
             if (!pos) return;
             if (this.board[pos.y][pos.x] !== 0) return;
 
-            // 如果已有待确认位置，且与本次相同 → 确认落子
+            // If there is already a pending position equal to this one -> confirm the move
             if (this.pendingMovePos &&
                 this.pendingMovePos.x === pos.x &&
                 this.pendingMovePos.y === pos.y) {
@@ -1030,13 +1031,13 @@ class GoBoard {
                 return;
             }
 
-            // 否则设为新的待确认位置
+            // Otherwise set it as the new pending position
             this.pendingMovePos = { x: pos.x, y: pos.y };
             this.draw();
         }, { passive: false });
     }
 
-    /** 预加载所有音效文件到内存 */
+    /** Preload all sound files into memory. */
     _preloadSounds() {
         try {
             for (let i = 1; i <= 5; i++) {
@@ -1049,11 +1050,11 @@ class GoBoard {
             this._captureSound.volume = 0.7;
             this._captureSound.preload = 'auto';
         } catch (e) {
-            console.warn('音效预加载失败:', e);
+            console.warn('Sound preload failed:', e);
         }
     }
 
-    /** 播放围棋落子音效（KaTrain 真实录音） */
+    /** Play the stone-placement sound (KaTrain real recordings). */
     _playStoneSound() {
         try {
             const idx = Math.floor(Math.random() * 5); // 0~4
@@ -1065,7 +1066,7 @@ class GoBoard {
         } catch (e) {}
     }
 
-    /** 播放提子音效 */
+    /** Play the capture sound. */
     _playCaptureSound() {
         try {
             if (this._captureSound) {
@@ -1075,7 +1076,7 @@ class GoBoard {
         } catch (e) {}
     }
 
-    /** 点击测试：检测像素坐标是否在某个候选走法圆圈内 */
+    /** Hit test: whether a pixel coordinate is inside a candidate circle. */
     _hitTestCandidate(cx, cy) {
         if (!this.analysisData || !this.analysisData.moves) return -1;
         const candidates = this.analysisData.moves.slice(0, 15);
@@ -1096,7 +1097,7 @@ class GoBoard {
         return -1;
     }
 
-    // ============== 公开 API ==============
+    // ============== Public API ==============
 
     setAnalysis(data) {
         this.analysisData = data;

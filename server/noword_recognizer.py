@@ -1,15 +1,15 @@
 """
-noword/image2sgf CNN 棋盘识别器
-基于 https://github.com/noword/image2sgf
+noword/image2sgf CNN board recognizer.
+Based on https://github.com/noword/image2sgf
 
-使用两个预训练 PyTorch 模型:
-  - board.pth: FCOS ResNet50 FPN, 检测棋盘四角
-  - stone.pth: EfficientNet B3, 分类每个交叉点 (6类)
+Uses two pre-trained PyTorch models:
+  - board.pth: FCOS ResNet50 FPN, detects the four board corners
+  - stone.pth: EfficientNet B3, classifies each intersection (6 classes)
 
-石子分类 label bits:
-  bit 0: 有无标记 (数字/字母/几何图形)
-  bit 1-2: 00=空, 01=黑, 10=白
-  → color = label >> 1: 0=空, 1=黑, 2=白
+Stone classification label bits:
+  bit 0:   marker present (digit / letter / geometric shape)
+  bit 1-2: 00 = empty, 01 = black, 10 = white
+  -> color = label >> 1: 0 = empty, 1 = black, 2 = white
 """
 
 import os
@@ -23,7 +23,7 @@ from collections import namedtuple
 
 logger = logging.getLogger(__name__)
 
-# ============== 常量 ==============
+# ============== Constants ==============
 DEFAULT_IMAGE_SIZE = 1024
 MODELS_DIR = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
@@ -32,7 +32,7 @@ MODELS_DIR = os.path.join(
 BOARD_PTH = os.path.join(MODELS_DIR, "board.pth")
 STONE_PTH = os.path.join(MODELS_DIR, "stone.pth")
 
-# 延迟加载 PyTorch
+# Lazy-loaded PyTorch
 _torch = None
 _torchvision = None
 _board_model = None
@@ -43,7 +43,7 @@ Point = namedtuple('Point', ['x', 'y'])
 
 
 def _ensure_torch():
-    """延迟加载 torch/torchvision，避免启动时间过长"""
+    """Lazy-import torch/torchvision to avoid slow startup."""
     global _torch, _torchvision
     if _torch is None:
         import torch
@@ -54,21 +54,21 @@ def _ensure_torch():
 
 
 def _get_device():
-    """获取计算设备 (优先 CUDA)"""
+    """Return the compute device (CUDA if available)."""
     global _device
     if _device is None:
         torch, _ = _ensure_torch()
         if torch.cuda.is_available():
             _device = torch.device('cuda')
-            logger.info(f"noword CNN 使用 CUDA: {torch.cuda.get_device_name(0)}")
+            logger.info(f"noword CNN using CUDA: {torch.cuda.get_device_name(0)}")
         else:
             _device = torch.device('cpu')
-            logger.info("noword CNN 使用 CPU")
+            logger.info("noword CNN using CPU")
     return _device
 
 
 def _load_models():
-    """加载 board + stone 模型（只在首次调用时执行）"""
+    """Load the board + stone models (only on first call)."""
     global _board_model, _stone_model
     if _board_model is not None and _stone_model is not None:
         return _board_model, _stone_model
@@ -90,9 +90,9 @@ def _load_models():
         _board_model.load_state_dict(state)
         _board_model.to(device)
         _board_model.eval()
-        logger.info(f"board.pth 已加载 ({time.time() - t0:.1f}s)")
+        logger.info(f"board.pth loaded ({time.time() - t0:.1f}s)")
     else:
-        logger.warning(f"board.pth 未找到: {BOARD_PTH}")
+        logger.warning(f"board.pth not found: {BOARD_PTH}")
 
     t1 = time.time()
 
@@ -103,18 +103,18 @@ def _load_models():
         _stone_model.load_state_dict(state)
         _stone_model.to(device)
         _stone_model.eval()
-        logger.info(f"stone.pth 已加载 ({time.time() - t1:.1f}s)")
+        logger.info(f"stone.pth loaded ({time.time() - t1:.1f}s)")
     else:
-        logger.warning(f"stone.pth 未找到: {STONE_PTH}")
+        logger.warning(f"stone.pth not found: {STONE_PTH}")
 
-    logger.info(f"noword 模型加载完成，总耗时 {time.time() - t0:.1f}s")
+    logger.info(f"noword models loaded in {time.time() - t0:.1f}s")
     return _board_model, _stone_model
 
 
-# ============== 几何工具类 ==============
+# ============== Geometry helpers ==============
 
 class GridPosition:
-    """棋盘网格位置计算（复刻 noword/image2sgf 的实现）"""
+    """Board grid position calculation (port of noword/image2sgf)."""
 
     def __init__(self, width, size=19, board_rate=0.8):
         self.width = width
@@ -126,7 +126,7 @@ class GridPosition:
         self.half_grid_size = self.grid_size / 2
 
         # _grid_pos[row][col] = Point(x, y)
-        # row 0 = 底部, row 18 = 顶部 (棋盘坐标系)
+        # row 0 = bottom, row 18 = top (board coordinate system)
         self._grid_pos = []
         for row in range(size):
             row_pos = []
@@ -141,7 +141,7 @@ class GridPosition:
 
 
 class BoxPosition(GridPosition):
-    """在 GridPosition 基础上计算每个交叉点的 bounding box"""
+    """Compute a bounding box for each intersection, on top of GridPosition."""
 
     def __init__(self, width, size=19, board_rate=0.8):
         super().__init__(width, size, board_rate)
@@ -162,17 +162,17 @@ class BoxPosition(GridPosition):
 
 
 class NpBoxPosition(BoxPosition):
-    """numpy 版 BoxPosition"""
+    """numpy version of BoxPosition."""
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._boxes = np.array(self._boxes)
 
 
-# ============== 核心函数 ==============
+# ============== Core functions ==============
 
 def expand_image(pil_image):
-    """将图片扩展为正方形（灰色填充居中）"""
+    """Pad the image to a square (centered, grey background)."""
     w, h = pil_image.size
     size = max(w, h)
     new_image = Image.new('RGB', (size, size), (128, 128, 128))
@@ -184,8 +184,8 @@ def expand_image(pil_image):
 
 def detect_board_corners(board_model, image, expand=True):
     """
-    用 FCOS 模型检测棋盘四个角点
-    返回: (boxes[4,4], scores[4]) 四个角的 bbox 和置信度
+    Detect the four board corners with the FCOS model.
+    Returns: (boxes[4,4], scores[4]) — the four corner bboxes and confidences.
     """
     torch, torchvision = _ensure_torch()
     device = _get_device()
@@ -212,7 +212,7 @@ def detect_board_corners(board_model, image, expand=True):
     _scores = target['scores'].detach()[nms].cpu()
 
     if len(set(_labels.tolist())) < 4:
-        raise ValueError(f"只检测到 {len(set(_labels.tolist()))} 个角点，需要 4 个")
+        raise ValueError(f"Only {len(set(_labels.tolist()))} corner(s) detected, need 4")
 
     boxes = np.zeros((4, 4))
     scores = [0] * 4
@@ -223,7 +223,7 @@ def detect_board_corners(board_model, image, expand=True):
             scores[label] = float(_scores[i])
 
     if np.any(np.all(boxes == 0, axis=1)):
-        raise ValueError("未能检测到所有 4 个角点")
+        raise ValueError("Could not detect all 4 corners")
 
     boxes[:, ::2] -= x_offset
     boxes[:, 1::2] -= y_offset
@@ -233,8 +233,9 @@ def detect_board_corners(board_model, image, expand=True):
 
 def perspective_correct(board_model, img, expand=True):
     """
-    检测四角并做透视变换，输出 1024x1024 的校正棋盘图
-    返回: (corrected_image, boxes, scores)
+    Detect the corners and apply a perspective transform, producing a
+    1024x1024 rectified board image.
+    Returns: (corrected_image, boxes, scores)
     """
     boxes, scores = detect_board_corners(board_model, img, expand)
     box_pos = NpBoxPosition(width=DEFAULT_IMAGE_SIZE, size=19)
@@ -261,8 +262,9 @@ def perspective_correct(board_model, img, expand=True):
 
 def classify_stones(stone_model, corrected_image):
     """
-    将校正后的 1024x1024 图切割为 19x19 格，用 EfficientNet B3 分类
-    返回: results[19][19], 每个值 = label (color = label >> 1)
+    Split the rectified 1024x1024 image into a 19x19 grid and classify each
+    cell with EfficientNet B3.
+    Returns: results[19][19], each value = label (color = label >> 1).
     """
     torch, _ = _ensure_torch()
     device = _get_device()
@@ -278,7 +280,7 @@ def classify_stones(stone_model, corrected_image):
         for x in range(19):
             x0, y0, x1, y1 = box_pos[y][x].astype(int)
             tile = img_tensor[:, y0:y1, x0:x1]
-            # 处理边界情况：tile 尺寸可能不是 grid_h
+            # Edge case: the tile may not be exactly grid_h x grid_h
             if tile.shape[1] != grid_h or tile.shape[2] != grid_h:
                 tile = torch.nn.functional.interpolate(
                     tile.unsqueeze(0), size=(grid_h, grid_h),
@@ -293,19 +295,19 @@ def classify_stones(stone_model, corrected_image):
     return results.reshape(19, 19)
 
 
-# ============== 主入口 ==============
+# ============== Main entry point ==============
 
 def recognize_board_noword(image_bytes, board_size=19):
     """
-    用 noword/image2sgf 的 CNN 模型识别棋盘
+    Recognize a board with the noword/image2sgf CNN models.
 
     Args:
-        image_bytes: 图片二进制数据
-        board_size: 棋盘大小 (目前仅支持 19)
+        image_bytes: raw image bytes
+        board_size:  board side length (only 19 is supported for now)
 
     Returns:
         dict: {
-            "board": [[0,1,2,...], ...],  # 19x19, 0=空 1=黑 2=白
+            "board": [[0,1,2,...], ...],  # 19x19, 0=empty 1=black 2=white
             "confidence": float,
             "method": "noword-cnn",
             "corners_score": [float, ...],
@@ -317,7 +319,7 @@ def recognize_board_noword(image_bytes, board_size=19):
             "board": [[0] * board_size for _ in range(board_size)],
             "confidence": 0,
             "method": "noword-cnn",
-            "error": "noword CNN 目前仅支持 19 路棋盘"
+            "error": "noword CNN currently supports 19x19 boards only"
         }
 
     t0 = time.time()
@@ -325,12 +327,12 @@ def recognize_board_noword(image_bytes, board_size=19):
     try:
         board_model, stone_model = _load_models()
     except Exception as e:
-        logger.error(f"加载模型失败: {e}")
+        logger.error(f"Model loading failed: {e}")
         return {
             "board": [[0] * 19 for _ in range(19)],
             "confidence": 0,
             "method": "noword-cnn",
-            "error": f"模型加载失败: {str(e)}"
+            "error": f"Model loading failed: {str(e)}"
         }
 
     if board_model is None or stone_model is None:
@@ -338,67 +340,67 @@ def recognize_board_noword(image_bytes, board_size=19):
             "board": [[0] * 19 for _ in range(19)],
             "confidence": 0,
             "method": "noword-cnn",
-            "error": "模型文件缺失 (需要 board.pth 和 stone.pth)"
+            "error": "Model files missing (board.pth and stone.pth required)"
         }
 
-    # 解码图片
+    # Decode the image
     pil_image = Image.open(io.BytesIO(image_bytes)).convert('RGB')
 
-    # Step 1: 检测四角 + 透视校正
+    # Step 1: corner detection + perspective correction
     try:
         corrected, boxes, scores = perspective_correct(board_model, pil_image, expand=True)
     except Exception as e1:
-        logger.warning(f"带扩展的检测失败 ({e1})，尝试不扩展...")
+        logger.warning(f"Detection with padding failed ({e1}); retrying without padding...")
         try:
             corrected, boxes, scores = perspective_correct(board_model, pil_image, expand=False)
         except Exception as e2:
-            logger.error(f"棋盘角点检测失败: {e2}")
+            logger.error(f"Board corner detection failed: {e2}")
             return {
                 "board": [[0] * 19 for _ in range(19)],
                 "confidence": 0,
                 "method": "noword-cnn",
-                "error": f"无法检测棋盘角点: {str(e2)}"
+                "error": f"Could not detect board corners: {str(e2)}"
             }
 
     corner_conf = min(scores)
-    logger.info(f"四角检测置信度: {[f'{s:.2f}' for s in scores]}")
+    logger.info(f"Corner detection confidence: {[f'{s:.2f}' for s in scores]}")
 
-    # 如果角点置信度低，尝试二次校正
+    # If corner confidence is low, try a second pass
     if corner_conf < 0.7:
         try:
             corrected2, boxes2, scores2 = perspective_correct(board_model, corrected, expand=True)
             if sum(scores2) > sum(scores):
                 corrected = corrected2
                 scores = scores2
-                logger.info(f"二次校正提升: {[f'{s:.2f}' for s in scores2]}")
+                logger.info(f"Second-pass improvement: {[f'{s:.2f}' for s in scores2]}")
         except Exception:
-            pass  # 二次校正失败就用一次的结果
+            pass  # keep the first-pass result if the second pass fails
 
-    # Step 2: 分类每个交叉点
+    # Step 2: classify each intersection
     board_raw = classify_stones(stone_model, corrected)
 
-    # 转换为标准格式
+    # Convert to the standard format.
     # board_raw = results.reshape(19, 19), results[y][x]
-    # 其中 y 来自 box_pos 的 row 维 (y=0 底部, y=18 顶部)
-    #      x 来自 box_pos 的 col 维 (x=0 左侧, x=18 右侧)
-    # 我们的格式: board[row][col], row 0=顶部
-    # → board[r][c] = results[18-r][c] >> 1
+    #   where y is box_pos' row axis (y=0 bottom, y=18 top)
+    #         x is box_pos' col axis (x=0 left, x=18 right)
+    # Our format: board[row][col], row 0 = top
+    # -> board[r][c] = results[18-r][c] >> 1
     board = []
-    for y in range(18, -1, -1):  # y=18(顶) → y=0(底)
+    for y in range(18, -1, -1):  # y=18 (top) -> y=0 (bottom)
         row = []
         for x in range(19):
-            color = int(board_raw[y][x]) >> 1  # results[y][x] 对应 box_pos[y][x]
+            color = int(board_raw[y][x]) >> 1  # results[y][x] maps to box_pos[y][x]
             row.append(color)
         board.append(row)
 
     elapsed = time.time() - t0
     avg_conf = sum(scores) / len(scores)
 
-    # 统计
+    # Stats
     black_count = sum(1 for row in board for c in row if c == 1)
     white_count = sum(1 for row in board for c in row if c == 2)
-    logger.info(f"noword CNN 识别完成: 黑{black_count}子, 白{white_count}子, "
-                f"置信度{avg_conf:.2f}, 耗时{elapsed:.1f}s")
+    logger.info(f"noword CNN done: {black_count} black, {white_count} white, "
+                f"confidence {avg_conf:.2f}, {elapsed:.1f}s")
 
     return {
         "board": board,
@@ -414,21 +416,21 @@ def recognize_board_noword(image_bytes, board_size=19):
     }
 
 
-# ============== 检查可用性 ==============
+# ============== Availability check ==============
 
 def is_available():
-    """检查 noword CNN 识别器是否可用"""
+    """Return True if the noword CNN recognizer is available."""
     return os.path.exists(BOARD_PTH) and os.path.exists(STONE_PTH)
 
 
 NOWORD_AVAILABLE = is_available()
 
 if NOWORD_AVAILABLE:
-    logger.info(f"noword CNN 识别器: ✅ 可用 (board.pth + stone.pth)")
+    logger.info("noword CNN recognizer: available (board.pth + stone.pth)")
 else:
     missing = []
     if not os.path.exists(BOARD_PTH):
         missing.append("board.pth")
     if not os.path.exists(STONE_PTH):
         missing.append("stone.pth")
-    logger.info(f"noword CNN 识别器: ❌ 缺少 {', '.join(missing)}")
+    logger.info(f"noword CNN recognizer: unavailable, missing {', '.join(missing)}")

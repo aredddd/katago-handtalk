@@ -17,6 +17,7 @@ from noword_recognizer import recognize_board_noword, NOWORD_AVAILABLE
 from config import (
     KATAGO_PATH, MODEL_PATH, CONFIG_PATH,
     PORT, DEFAULT_MAX_VISITS, QUICK_MAX_VISITS,
+    DEFAULT_LANGUAGE, AVAILABLE_LANGUAGES,
 )
 from events import Events
 from exceptions import (
@@ -118,6 +119,15 @@ def api_status():
 def api_circuit_status():
     """Current circuit breaker state (for polling / debug)."""
     return jsonify(cb.get_status())
+
+
+@app.route("/api/config")
+def api_config():
+    """Client-facing configuration (default UI language, available languages)."""
+    return jsonify({
+        "default_language":    DEFAULT_LANGUAGE,
+        "available_languages": AVAILABLE_LANGUAGES,
+    })
 
 
 @app.route("/api/register", methods=["POST"])

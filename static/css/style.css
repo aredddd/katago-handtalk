@@ -1,4 +1,4 @@
-/* ============== 全局样式 ============== */
+/* ============== Global styles ============== */
 :root {
     --bg-color: #1a1a2e;
     --panel-bg: #16213e;
@@ -79,7 +79,7 @@ body {
     50% { opacity: 0.4; }
 }
 
-/* ============== 主内容布局 ============== */
+/* ============== Main content layout ============== */
 #main-content {
     display: flex;
     gap: 16px;
@@ -89,7 +89,7 @@ body {
     box-sizing: border-box;
 }
 
-/* ============== 棋盘区域（棋盘 + 导航 + 胜率） ============== */
+/* ============== Board area (board + navigation + winrate) ============== */
 #board-area {
     flex: 1 1 auto;
     display: flex;
@@ -116,10 +116,10 @@ body {
     cursor: pointer;
     border-radius: 4px;
     display: block;
-    /* touch-action 使用默认值，缩放由浏览器原生手势处理 */
+    /* touch-action uses the default; zoom is handled by the browser native gestures */
 }
 
-/* ============== KaTrain 风格导航条 ============== */
+/* ============== KaTrain-style navigation bar ============== */
 #move-nav {
     flex: 0 0 auto;
     width: 100%;
@@ -212,7 +212,7 @@ body {
     cursor: pointer;
 }
 
-/* ============== 胜率条（棋盘下方） ============== */
+/* ============== Winrate bar (below the board) ============== */
 #winrate-strip {
     flex: 0 0 auto;
     width: 100%;
@@ -242,7 +242,7 @@ body {
     text-align: right;
 }
 
-/* ============== 控制面板 ============== */
+/* ============== Control panel ============== */
 #panel {
     flex: 0 0 320px;
     display: flex;
@@ -252,7 +252,7 @@ body {
     max-height: 100%;
 }
 
-/* 大屏面板更宽 */
+/* Wider panel on large screens */
 @media (min-width: 1600px) {
     #panel {
         flex: 0 0 380px;
@@ -343,10 +343,10 @@ body {
     letter-spacing: 0.5px;
 }
 
-/* ============== 信息栏 ============== */
-/* (胜率信息已移到棋盘下方 #winrate-strip) */
+/* ============== Info bar ============== */
+/* (winrate info moved below the board, #winrate-strip) */
 
-/* 胜率条 */
+/* Winrate bar */
 #winrate-bar-container {
     flex: 1;
     height: 10px;
@@ -363,7 +363,7 @@ body {
     transition: width 0.5s ease;
 }
 
-/* 可折叠设置区 */
+/* Collapsible settings section */
 .section-toggle {
     cursor: pointer;
     user-select: none;
@@ -390,7 +390,7 @@ body {
     transform: rotate(-90deg);
 }
 
-/* ============== 模式按钮 ============== */
+/* ============== Mode buttons ============== */
 .mode-buttons {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -419,7 +419,7 @@ body {
     color: var(--accent-color);
 }
 
-/* ============== 设置 ============== */
+/* ============== Settings ============== */
 .setting-row {
     display: flex;
     align-items: center;
@@ -446,7 +446,7 @@ body {
     accent-color: var(--accent-color);
 }
 
-/* ============== 操作按钮 ============== */
+/* ============== Action buttons ============== */
 .action-buttons {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -480,7 +480,7 @@ body {
     background: rgba(239,83,80,0.35);
 }
 
-/* ============== 推荐走法列表 ============== */
+/* ============== Suggestions list ============== */
 #suggestions-list {
     max-height: 240px;
     overflow-y: auto;
@@ -555,7 +555,7 @@ body {
     font-size: 0.82rem;
 }
 
-/* ============== PV 显示 ============== */
+/* ============== PV display ============== */
 #pv-display {
     font-size: 0.82rem;
     line-height: 1.6;
@@ -578,7 +578,7 @@ body {
     border-left: 2px solid #ccc;
 }
 
-/* ============== 滚动条 ============== */
+/* ============== Scrollbar ============== */
 ::-webkit-scrollbar {
     width: 6px;
 }
@@ -596,7 +596,7 @@ body {
     background: rgba(255,255,255,0.25);
 }
 
-/* ============== 响应式 - 手机/平板竖屏 ============== */
+/* ============== Responsive - phone/tablet portrait ============== */
 @media (max-width: 768px) {
     #main-content {
         flex-direction: column;
@@ -684,7 +684,7 @@ body {
     }
 }
 
-/* ============== 横屏手机 ============== */
+/* ============== Landscape phone ============== */
 @media (max-height: 500px) and (orientation: landscape) {
     #main-content {
         flex-direction: row;
@@ -714,7 +714,7 @@ body {
     }
 }
 
-/* ============== 加载提示覆盖层 ============== */
+/* ============== Loading overlay ============== */
 #loading-overlay {
     position: fixed;
     top: 0; left: 0; right: 0; bottom: 0;
@@ -744,7 +744,7 @@ body {
     to { transform: rotate(360deg); }
 }
 
-/* ============== 棋盘识别弹窗 ============== */
+/* ============== Board recognition modal ============== */
 .modal-overlay {
     position: fixed;
     top: 0; left: 0; right: 0; bottom: 0;
@@ -823,7 +823,7 @@ body {
     border-radius: 4px;
     cursor: pointer;
     max-width: 100%;
-    /* touch-action 使用默认值（auto），允许浏览器二指缩放手势 */
+    /* touch-action uses the default (auto), allowing the browser pinch-zoom gesture */
 }
 
 #recognize-info {

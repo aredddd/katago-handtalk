@@ -19,131 +19,40 @@
     };
 
     // ── i18n ─────────────────────────────────────────────────────────────────
-    const STRINGS = {
-        zh: {
-            // status
-            connecting:      "连接中…",
-            connected:       "已连接",
-            engineReady:     "引擎就绪",
-            engineOffline:   "引擎未运行",
-            analyzing:       "分析中…",
-            aiThinking:      "AI 思考中…",
-            boardLoaded:     "棋盘已加载",
-            // score
-            black:           "黑",
-            white:           "白",
-            // game UI
-            freePlay:        "摆谱",
-            playBlack:       "执黑",
-            playWhite:       "执白",
-            aiVsAi:          "AI对弈",
-            undo:            "悔棋",
-            pass:            "虚手",
-            analyze:         "分析",
-            newGame:         "新对局",
-            recognize:       "拍照识别",
-            // settings
-            settings:        "设置",
-            boardSize:       "棋盘",
-            komi:            "贴目",
-            visits:          "搜索量",
-            showAnalysis:    "分析",
-            showOwnership:   "目数",
-            showMoveNum:     "手数",
-            // suggestions
-            suggestions:     "推荐走法",
-            mainLine:        "主要变化",
-            suggestPlaceholder: "落子后将显示分析",
-            pvPlaceholder:   "点击推荐走法查看变化",
-            pvEmpty:         "无变化",
-            noSuggestions:   "无推荐走法",
-            // confirm
-            confirmNewGame:  "确定要开始新对局吗？",
-            // recognition modal
-            recognizing:     "🤖 AI 正在识别棋盘，请稍候…",
-            recognizeResult: "识别结果",
-            recognizeHint:   "点击棋盘修正：空 → ⚫ → ⚪ → 空",
-            confirmLoad:     "确认加载",
-            retakePhoto:     "重新拍照",
-            nextPlayer:      "下一手：",
-            recognizeFailed: "识别失败",
-            uploadFailed:    "上传失败",
-            // auth
-            signIn:          "登录",
-            signOut:         "退出",
-            register:        "注册",
-            username:        "用户名",
-            password:        "密码",
-            loginRequired:   "请先登录后使用分析功能",
-            circuitOpen:     "断路器已断开 — 引擎暂时不可用",
-            circuitHalfOpen: "引擎恢复中…",
-            circuitClosed:   "引擎恢复正常",
-        },
-        en: {
-            // status
-            connecting:      "Connecting…",
-            connected:       "Connected",
-            engineReady:     "Engine ready",
-            engineOffline:   "Engine offline",
-            analyzing:       "Analyzing…",
-            aiThinking:      "AI thinking…",
-            boardLoaded:     "Board loaded",
-            // score
-            black:           "B",
-            white:           "W",
-            // game UI
-            freePlay:        "Free play",
-            playBlack:       "Play black",
-            playWhite:       "Play white",
-            aiVsAi:          "AI vs AI",
-            undo:            "Undo",
-            pass:            "Pass",
-            analyze:         "Analyze",
-            newGame:         "New game",
-            recognize:       "Photo",
-            // settings
-            settings:        "Settings",
-            boardSize:       "Board",
-            komi:            "Komi",
-            visits:          "Visits",
-            showAnalysis:    "Analysis",
-            showOwnership:   "Ownership",
-            showMoveNum:     "Move #",
-            // suggestions
-            suggestions:     "Suggestions",
-            mainLine:        "Main line",
-            suggestPlaceholder: "Analysis shown after a move",
-            pvPlaceholder:   "Click a suggestion to view the line",
-            pvEmpty:         "No line",
-            noSuggestions:   "No suggestions",
-            // confirm
-            confirmNewGame:  "Start a new game?",
-            // recognition modal
-            recognizing:     "🤖 Recognising board, please wait…",
-            recognizeResult: "Recognition result",
-            recognizeHint:   "Click to correct: empty → ⚫ → ⚪ → empty",
-            confirmLoad:     "Load board",
-            retakePhoto:     "Retake photo",
-            nextPlayer:      "Next to play:",
-            recognizeFailed: "Recognition failed",
-            uploadFailed:    "Upload failed",
-            // auth
-            signIn:          "Sign in",
-            signOut:         "Sign out",
-            register:        "Register",
-            username:        "Username",
-            password:        "Password",
-            loginRequired:   "Please sign in to use analysis features",
-            circuitOpen:     "Circuit breaker open — engine temporarily unavailable",
-            circuitHalfOpen: "Engine recovering…",
-            circuitClosed:   "Engine recovered",
-        },
-    };
+    // Translation dictionaries are loaded at startup from static/locales/<lang>.json.
+    // The default language and the list of available languages come from the server
+    // (GET /api/config, driven by config.ini); a user's explicit choice in
+    // localStorage takes precedence.
+    const STRINGS = {};                 // { en: {...}, zh: {...} } — filled by loadLocales()
+    let availableLangs = ["en", "zh"];  // overwritten by /api/config
+    let serverDefaultLang = "en";       // overwritten by /api/config
+    let currentLang = "en";             // resolved in bootstrap()
 
-    let currentLang = localStorage.getItem("lang") || "en";
+    async function loadServerConfig() {
+        try {
+            const cfg = await (await fetch("/api/config")).json();
+            if (Array.isArray(cfg.available_languages) && cfg.available_languages.length)
+                availableLangs = cfg.available_languages;
+            if (cfg.default_language) serverDefaultLang = cfg.default_language;
+        } catch (e) {
+            console.warn("Could not load /api/config, using defaults", e);
+        }
+    }
+
+    async function loadLocales() {
+        await Promise.all(availableLangs.map(async (lg) => {
+            try {
+                STRINGS[lg] = await (await fetch(`locales/${lg}.json`)).json();
+            } catch (e) {
+                console.warn(`Could not load locale '${lg}'`, e);
+                STRINGS[lg] = STRINGS[lg] || {};
+            }
+        }));
+    }
 
     function t(key) {
-        return (STRINGS[currentLang] || STRINGS.en)[key] || key;
+        const dict = STRINGS[currentLang] || STRINGS[serverDefaultLang] || STRINGS.en || {};
+        return dict[key] || key;
     }
 
     function applyTranslations() {
@@ -167,7 +76,9 @@
     }
 
     function toggleLang() {
-        currentLang = currentLang === "zh" ? "en" : "zh";
+        // Cycle to the next available language.
+        const i = availableLangs.indexOf(currentLang);
+        currentLang = availableLangs[(i + 1) % availableLangs.length];
         localStorage.setItem("lang", currentLang);
         applyTranslations();
     }
@@ -310,7 +221,14 @@
 
     // ── Init ──────────────────────────────────────────────────────────────────
 
-    window.addEventListener("DOMContentLoaded", () => {
+    window.addEventListener("DOMContentLoaded", async () => {
+        // 1. Load server config (default language, available languages),
+        //    then the locale dictionaries, before rendering any text.
+        await loadServerConfig();
+        currentLang = localStorage.getItem("lang") || serverDefaultLang || "en";
+        await loadLocales();
+
+        // 2. Initialise the application.
         board = new GoBoard("goboard", 19);
         board.onMove((x, y) => handleUserMove(x, y));
         board.onCandidateHover = (idx) => highlightSuggestion(idx);
