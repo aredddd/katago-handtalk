@@ -75,6 +75,7 @@ katago-web/
 ├── models/
 │   └── image2sgf/            # CNN model weights (board.pth + stone.pth)
 ├── setup.ps1                 # One-click Windows setup script
+├── demo_suspend_katago.ps1   # Suspend/resume KataGo for the Circuit Breaker demo
 └── requirements.txt
 ```
 
@@ -190,6 +191,7 @@ Edit `config/default_gtp.cfg` to tune KataGo parameters:
 | `KATAGO_PATH` | `C:\katago\katago.exe` | Path to KataGo executable |
 | `KATAGO_MODEL` | `C:\katago\kata1-b18c384nbt-*.bin.gz` | Path to model weights |
 | `KATAGO_CONFIG` | `config/default_gtp.cfg` | Path to KataGo config |
+| `KATAGO_MAX_WAIT` | `300` | Per-query engine timeout, seconds (lower it, e.g. `5`, for a hung-engine demo) |
 | `PORT` | `5000` | Server port |
 | `DEFAULT_MAX_VISITS` | `3000` | Default analysis visits |
 | `QUICK_MAX_VISITS` | `100` | Visits for quick analysis |
@@ -213,6 +215,15 @@ Two ways to see the Circuit Breaker trip and recover:
   bottom-right button toggles failures; the status indicator cycles red → amber →
   green as the breaker opens and recovers. The toggle and the demo engine exist
   only when the flag is set.
+- **Real fault (needs KataGo):** with the real engine running, set a short
+  `KATAGO_MAX_WAIT` (e.g. `5`) and **freeze** the engine with
+  `./demo_suspend_katago.ps1` (`-Resume` to unfreeze). Frozen, the engine stays
+  "running" so requests reach the breaker and time out — a genuine hung-engine
+  fault that trips it and then recovers. (Killing the process does *not* trip the
+  breaker — a dead engine is caught by the `is_running()` check before the
+  breaker.)
+
+See `TP2/demo-circuit-breaker.md` for the full runbook.
 
 ## How It Works
 
