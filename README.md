@@ -42,13 +42,20 @@ KataGo Web follows a **3-tier (n-layer) architecture**:
 ```
 katago-web/
 ├── server/
-│   ├── app.py                # Flask + Socket.IO server, HTTP routes, WS handlers
+│   ├── app.py                # Entry point: build via factory, start engine, run
+│   ├── app_factory.py        # create_app() — builds & wires Flask + Socket.IO
+│   ├── analysis_service.py   # AnalysisService — application-logic service (RealSubject)
+│   ├── engine_lifecycle.py   # Create / start the KataGo engine
+│   ├── sockets.py            # Socket.IO event handlers (connect / analyze / play_ai …)
+│   ├── routes/               # HTTP blueprints (pages, auth, admin, recognition)
 │   ├── config.py             # Environment-backed configuration
 │   ├── events.py             # WebSocket event-name constants
 │   ├── exceptions.py         # Custom exception hierarchy
 │   ├── katago_facade.py      # KataGoFacade — abstract engine interface (Façade)
 │   ├── katago_engine.py      # KataGoEngine — concrete Façade over the subprocess
 │   ├── circuit_breaker.py    # Circuit Breaker stability pattern
+│   ├── demo_circuit_breaker.py  # Standalone Circuit Breaker demo (GPU-free)
+│   ├── demo_engine.py        # Demo-only fault-injecting engine (web CB demo)
 │   ├── auth.py               # JWT helpers + Proxy decorators (require_auth/admin)
 │   ├── user_store.py         # SQLite persistence (users + settings)
 │   └── noword_recognizer.py  # CNN board recognition (FCOS + EfficientNet)
@@ -187,8 +194,25 @@ Edit `config/default_gtp.cfg` to tune KataGo parameters:
 | `DEFAULT_MAX_VISITS` | `3000` | Default analysis visits |
 | `QUICK_MAX_VISITS` | `100` | Visits for quick analysis |
 | `JWT_SECRET` | *(dev default)* | Secret used to sign JWT session tokens — **set a strong value in production** |
+| `FLASK_SECRET_KEY` | *(dev default)* | Flask session secret — **set a strong value in production** |
+| `CB_THRESHOLD` | `3` | Consecutive engine failures before the Circuit Breaker opens |
+| `CB_RESET_TIMEOUT` | `30` | Seconds the breaker stays OPEN before a trial call (HALF_OPEN) |
+| `CB_DEMO_FAULT_INJECTION` | *(unset)* | **Demo only** — replace the engine with a toggleable fault injector (see *Circuit Breaker demos*) |
 
 > **Security note:** the default `JWT_SECRET`, the Flask `SECRET_KEY`, and the open CORS policy are convenient for local/LAN use and demos. For a public deployment, set a strong `JWT_SECRET`, restrict CORS origins, and serve over HTTPS.
+
+### Circuit Breaker demos
+
+Two ways to see the Circuit Breaker trip and recover:
+
+- **Standalone (no GPU):** `python server/demo_circuit_breaker.py` drives the real
+  `CircuitBreaker` through CLOSED → OPEN (fail-fast) → HALF_OPEN → CLOSED and prints
+  a timestamped log.
+- **Live web (no GPU):** start with `CB_DEMO_FAULT_INJECTION=1` (and a short
+  `CB_RESET_TIMEOUT`, e.g. `8`) to replace the engine with a fault injector. A
+  bottom-right button toggles failures; the status indicator cycles red → amber →
+  green as the breaker opens and recovers. The toggle and the demo engine exist
+  only when the flag is set.
 
 ## How It Works
 
