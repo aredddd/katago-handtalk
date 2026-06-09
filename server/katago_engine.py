@@ -222,6 +222,12 @@ class KataGoEngine(KataGoFacade):
             return response
         except queue.Empty:
             logger.warning(f"Query {query_id} timed out after {self.max_wait}s")
+            # Ask KataGo to drop this query. Otherwise abandoned (timed-out)
+            # queries keep computing and pile up in the engine's queue: while the
+            # engine is slow or recovering, later queries wait behind a growing
+            # backlog and keep timing out, so it never catches up. Best-effort —
+            # terminate() checks the process and swallows its own errors.
+            self.terminate(query_id)
             raise EngineTimeoutError(
                 f"KataGo did not respond within {self.max_wait}s"
             )
