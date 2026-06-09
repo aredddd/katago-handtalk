@@ -116,7 +116,7 @@ class CircuitBreaker(CircuitBreakerBase):
                     remaining = int(self.reset_timeout -
                                     (time.monotonic() - self._opened_at))
                     raise CircuitOpenError(
-                        f"Circuit is OPEN — engine unavailable "
+                        f"Circuit is OPEN - engine unavailable "
                         f"(retry in {max(0, remaining)}s)"
                     )
             elif self._state == State.HALF_OPEN:

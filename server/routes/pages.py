@@ -52,4 +52,5 @@ def api_config():
     return jsonify({
         "default_language":    DEFAULT_LANGUAGE,
         "available_languages": AVAILABLE_LANGUAGES,
+        "demo_fault_injection": current_app.config.get("DEMO_FAULT_INJECTION", False),
     })
