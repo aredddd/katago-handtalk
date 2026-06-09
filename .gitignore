@@ -28,3 +28,7 @@ desktop.ini
 
 # Logs
 *.log
+
+# Runtime database (created on first run; contains user/password hashes)
+server/users.db
+*.db
