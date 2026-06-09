@@ -26,6 +26,7 @@
     const STRINGS = {};                 // { en: {...}, zh: {...} } — filled by loadLocales()
     let availableLangs = ["en", "zh"];  // overwritten by /api/config
     let serverDefaultLang = "en";       // overwritten by /api/config
+    let demoFaultInjection = false;     // overwritten by /api/config (demo only)
     let currentLang = "en";             // resolved in bootstrap()
 
     async function loadServerConfig() {
@@ -34,6 +35,7 @@
             if (Array.isArray(cfg.available_languages) && cfg.available_languages.length)
                 availableLangs = cfg.available_languages;
             if (cfg.default_language) serverDefaultLang = cfg.default_language;
+            demoFaultInjection = !!cfg.demo_fault_injection;
         } catch (e) {
             console.warn("Could not load /api/config, using defaults", e);
         }
@@ -244,7 +246,45 @@
         setStatus("offline", t("connecting"));
         // Show mandatory login modal immediately if not authenticated
         if (!isLoggedIn()) showAuthModal(true);
+
+        // Demo-only: floating button to toggle engine failure (Circuit Breaker demo).
+        if (demoFaultInjection) installDemoFaultControl();
     });
+
+    // Demo-only control: a floating button that toggles the fault-injecting
+    // engine on the server, so a presenter can trip the Circuit Breaker live.
+    // Only installed when /api/config reports demo_fault_injection = true.
+    function installDemoFaultControl() {
+        let faultOn = false;
+        const btn = document.createElement("button");
+        btn.id = "demo-fault-btn";
+        btn.style.cssText =
+            "position:fixed;right:14px;bottom:14px;z-index:9999;padding:9px 15px;" +
+            "border:none;border-radius:7px;font:600 13px sans-serif;cursor:pointer;" +
+            "color:#fff;box-shadow:0 2px 8px rgba(0,0,0,.35)";
+        const render = () => {
+            btn.textContent = faultOn ? "⚠ DEMO: engine fault ON" : "✓ DEMO: engine healthy";
+            btn.style.background = faultOn ? "#c0392b" : "#2e7d32";
+        };
+        btn.addEventListener("click", async () => {
+            try {
+                const res = await fetch("/api/demo/engine-fault", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ on: !faultOn }),
+                });
+                const data = await res.json();
+                faultOn = !!data.fault;
+                render();
+            } catch (e) { console.warn("demo fault toggle failed", e); }
+        });
+        render();
+        document.body.appendChild(btn);
+        // Reflect the server's current state on load.
+        fetch("/api/demo/engine-fault")
+            .then(r => r.json()).then(d => { faultOn = !!d.fault; render(); })
+            .catch(() => {});
+    }
 
     // ── WebSocket ─────────────────────────────────────────────────────────────
 
