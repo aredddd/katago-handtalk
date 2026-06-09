@@ -40,6 +40,9 @@ MODEL_PATH:  str = _get("katago", "model_path", "KATAGO_MODEL",
                         r"C:\katago\kata1-b18c384nbt-s9996604416-d4316597426.bin.gz")
 CONFIG_PATH: str = _resolve(_get("katago", "config_path", "KATAGO_CONFIG",
                                  os.path.join("config", "default_gtp.cfg")))
+# Per-query response timeout (seconds). Default 300 s; lower it (e.g. 5) to make
+# a hung-engine Circuit Breaker demo trip quickly. See TP2/demo-circuit-breaker.md.
+KATAGO_MAX_WAIT: int = int(_get("katago", "max_wait", "KATAGO_MAX_WAIT", "300"))
 
 # ── Server ───────────────────────────────────────────────────────────────────
 
