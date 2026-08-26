@@ -1,218 +1,278 @@
 <!DOCTYPE html>
-<html lang="en" id="html-root">
+<html lang="zh-CN" id="html-root">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>KataGo Web</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="theme-color" content="#101713">
+    <meta name="description" content="简洁、易用的本地 KataGo 围棋复盘工具">
+    <title>手谈 · KataGo 复盘</title>
     <link rel="stylesheet" href="css/style.css">
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚫</text></svg>">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>●</text></svg>">
 </head>
 <body>
     <div id="app">
-        <!-- Header -->
         <header id="header">
-            <h1>KataGo Web</h1>
-            <div id="status-indicator">
-                <span id="engine-status" class="status-dot offline"></span>
-                <span id="engine-text">…</span>
-            </div>
-            <div id="header-right">
-                <button id="btn-lang" class="btn-lang" title="Switch language">中/EN</button>
-                <div id="auth-area">
-                    <button id="btn-show-login" class="btn-auth">Sign in</button>
+            <div class="brand" aria-label="手谈 KataGo">
+                <span class="brand-mark" aria-hidden="true"><i></i><i></i></span>
+                <div>
+                    <h1>手谈</h1>
+                    <p>KataGo 本地复盘</p>
                 </div>
+            </div>
+
+            <div class="header-actions">
+                <div id="status-indicator" class="engine-pill" role="status" aria-live="polite">
+                    <span id="engine-status" class="status-dot offline"></span>
+                    <span id="engine-text">正在连接引擎…</span>
+                </div>
+                <button id="btn-lang" class="icon-button" type="button" title="切换语言" aria-label="切换中文或英文">中 / EN</button>
             </div>
         </header>
 
-        <!-- Main content -->
         <main id="main-content">
-            <!-- Left: board + navigation -->
-            <div id="board-area">
+            <section id="board-area" aria-label="围棋棋盘">
                 <div id="board-container">
-                    <canvas id="goboard"></canvas>
+                    <canvas id="goboard" aria-label="围棋棋盘；点击交叉点落子"></canvas>
+                    <div id="game-message" class="game-message" role="status" aria-live="polite" hidden></div>
                 </div>
 
-                <div id="move-nav">
-                    <div id="nav-buttons">
-                        <button id="nav-start">⏮</button>
-                        <button id="nav-back10">⏪</button>
-                        <button id="nav-back1">◀</button>
-                        <button id="nav-forward1">▶</button>
-                        <button id="nav-forward10">⏩</button>
-                        <button id="nav-end">⏭</button>
-                    </div>
-                    <div id="nav-slider-row">
-                        <span id="nav-move-num">0</span>
-                        <input type="range" id="nav-slider" min="0" max="0" value="0" step="1">
-                        <span id="nav-move-total">/ 0</span>
-                    </div>
-                </div>
-
-                <!-- Winrate strip -->
-                <div id="winrate-strip">
-                    <span id="wr-black-label" class="wr-label">⚫ <span id="winrate-black">50.0%</span></span>
-                    <div id="winrate-bar-container">
+                <div id="winrate-strip" aria-label="当前形势">
+                    <span id="wr-black-label" class="wr-label stone-side black-side">
+                        <span class="mini-stone black" aria-hidden="true"></span>
+                        <span id="winrate-black">50.0%</span>
+                    </span>
+                    <div id="winrate-bar-container" title="黑白胜率">
                         <div id="winrate-bar-black"></div>
                     </div>
-                    <span id="wr-white-label" class="wr-label"><span id="winrate-white">50.0%</span> ⚪</span>
+                    <span id="wr-white-label" class="wr-label stone-side white-side">
+                        <span id="winrate-white">50.0%</span>
+                        <span class="mini-stone white" aria-hidden="true"></span>
+                    </span>
+                    <span class="score-caption">目差</span>
                     <span id="score-lead" class="score-lead-inline">0.0</span>
                 </div>
-            </div>
 
-            <!-- Right: control panel -->
-            <div id="panel">
-                <div class="panel-section">
-                    <div class="mode-buttons">
-                        <button class="mode-btn active" data-mode="free-play">♟ <span class="i18n" data-key="freePlay">Free play</span></button>
-                        <button class="mode-btn" data-mode="play-black">⚫ <span class="i18n" data-key="playBlack">Play black</span></button>
-                        <button class="mode-btn" data-mode="play-white">⚪ <span class="i18n" data-key="playWhite">Play white</span></button>
-                        <button class="mode-btn" data-mode="ai-vs-ai">🤖 <span class="i18n" data-key="aiVsAi">AI vs AI</span></button>
-                    </div>
-                    <div class="action-buttons" style="margin-top:8px">
-                        <button id="btn-undo">↩ <span class="i18n" data-key="undo">Undo</span></button>
-                        <button id="btn-pass">⏭ <span class="i18n" data-key="pass">Pass</span></button>
-                        <button id="btn-analyze">🔍 <span class="i18n" data-key="analyze">Analyze</span></button>
-                        <button id="btn-new-game">🔄 <span class="i18n" data-key="newGame">New game</span></button>
-                    </div>
-                    <div class="action-buttons" style="margin-top:4px">
-                        <button id="btn-camera">📷 <span class="i18n" data-key="recognize">Photo</span></button>
-                        <input type="file" id="camera-input" accept="image/*" capture="environment" style="display:none">
-                    </div>
-                </div>
+                <nav id="move-nav" aria-label="当前手数">
+                    <span>第</span>
+                    <strong id="nav-move-num">0</strong>
+                    <span id="nav-move-total">/ 0</span>
+                    <span>手</span>
+                </nav>
+            </section>
 
-                <!-- Settings -->
-                <div class="panel-section collapsible" id="settings-section">
-                    <h3 class="section-toggle" data-target="settings-body">
-                        ⚙ <span class="i18n" data-key="settings">Settings</span>
-                        <span class="toggle-icon">▾</span>
-                    </h3>
+            <aside id="panel" aria-label="复盘控制面板">
+                <section class="panel-section mode-card">
+                    <div class="section-heading">
+                        <div>
+                            <span class="eyebrow">对局方式</span>
+                            <h2>我想怎么下</h2>
+                        </div>
+                    </div>
+                    <div class="mode-buttons" role="group" aria-label="对局模式">
+                        <button class="mode-btn active" type="button" data-mode="free-play">
+                            <span class="mode-symbol free" aria-hidden="true">↗</span>
+                            <span><b class="i18n" data-key="freePlay">自由推演</b><small>双方都由你落子</small></span>
+                        </button>
+                        <button class="mode-btn" type="button" data-mode="play-black">
+                            <span class="mode-symbol stone black" aria-hidden="true"></span>
+                            <span><b class="i18n" data-key="playBlack">执黑对弈</b><small>你执黑，AI 执白</small></span>
+                        </button>
+                        <button class="mode-btn" type="button" data-mode="play-white">
+                            <span class="mode-symbol stone white" aria-hidden="true"></span>
+                            <span><b class="i18n" data-key="playWhite">执白对弈</b><small>AI 执黑，你执白</small></span>
+                        </button>
+                    </div>
+                </section>
+
+                <section class="panel-section action-card">
+                    <div class="section-heading compact-heading">
+                        <div>
+                            <span class="eyebrow">常用操作</span>
+                            <h2>棋局控制</h2>
+                        </div>
+                    </div>
+
+                    <button id="btn-camera" class="import-button" type="button">
+                        <span class="button-icon" aria-hidden="true">▣</span>
+                        <span><b>选择截图</b><small>选择已有图片，从中局继续</small></span>
+                        <span class="button-arrow" aria-hidden="true">›</span>
+                    </button>
+                    <input type="file" id="camera-input" accept="image/*" capture="environment">
+                    <div class="import-quick-actions" role="group" aria-label="截图导入方式">
+                        <button id="btn-snipping" type="button">
+                            <span aria-hidden="true">⌗</span><span>打开系统截图</span>
+                        </button>
+                        <button id="btn-paste" type="button">
+                            <span aria-hidden="true">⌘V</span><span>粘贴截图</span>
+                        </button>
+                    </div>
+                    <p class="paste-hint">截完后回到这里按 <kbd>Ctrl</kbd> + <kbd>V</kbd>，页面任意位置都能粘贴。</p>
+
+                    <div class="action-buttons primary-actions">
+                        <button id="btn-undo" type="button"><span aria-hidden="true">↶</span><span class="i18n" data-key="undo">悔棋</span></button>
+                        <button id="btn-pass" type="button"><span aria-hidden="true">—</span><span class="i18n" data-key="pass">停一手</span></button>
+                        <button id="btn-resign" class="danger-soft" type="button"><span aria-hidden="true">⚑</span><span>认输</span></button>
+                        <button id="btn-new-game" type="button"><span aria-hidden="true">＋</span><span class="i18n" data-key="newGame">新棋局</span></button>
+                    </div>
+
+                    <div class="ai-actions">
+                        <button id="btn-analyze" class="btn-accent" type="button">
+                            <span class="button-icon sparkle" aria-hidden="true">✦</span>
+                            <span><b class="i18n" data-key="analyze">AI 分析</b><small>推荐下一手</small></span>
+                        </button>
+                        <button id="btn-position" type="button">
+                            <span class="button-icon" aria-hidden="true">◐</span>
+                            <span><b>形势判断</b><small>查看胜率与目差</small></span>
+                        </button>
+                    </div>
+                </section>
+
+                <section class="panel-section live-review-card" id="live-review-section">
+                    <div class="live-review-copy">
+                        <div class="live-icon" aria-hidden="true">◎</div>
+                        <div>
+                            <div class="live-title-row">
+                                <h2>实时复盘</h2>
+                                <span class="beta-badge">BETA</span>
+                            </div>
+                            <p>持续读取屏幕棋局，自动同步局面</p>
+                        </div>
+                    </div>
+                    <div class="live-review-footer">
+                        <div id="live-review-status" class="live-status" role="status" aria-live="polite"><span class="i18n" data-key="liveIdle">未开始</span></div>
+                        <button id="btn-live-review" class="live-toggle" type="button"><span class="i18n" data-key="liveStart">开始实时复盘</span></button>
+                    </div>
+                    <div class="live-turn-control">
+                        <label for="live-next-player">当前轮到</label>
+                        <select id="live-next-player">
+                            <option value="1">● 黑方</option>
+                            <option value="2">○ 白方</option>
+                        </select>
+                        <small>停一手或跳过多手时可在这里校正</small>
+                    </div>
+                    <div class="live-review-media" aria-hidden="true">
+                        <video id="live-review-video" muted playsinline></video>
+                        <canvas id="live-review-canvas"></canvas>
+                    </div>
+                </section>
+
+                <section class="panel-section analysis-card" id="suggestions-section">
+                    <div class="section-heading compact-heading">
+                        <div>
+                            <span class="eyebrow">AI 建议</span>
+                            <h2 class="i18n" data-key="suggestions">推荐着法</h2>
+                        </div>
+                        <span class="analysis-hint">点击候选点预览</span>
+                    </div>
+                    <div id="suggestions-list">
+                        <p class="placeholder i18n" data-key="suggestPlaceholder">落子后，这里会显示 AI 的建议</p>
+                    </div>
+                </section>
+
+                <section class="panel-section pv-card" id="pv-section">
+                    <div class="section-heading compact-heading">
+                        <div>
+                            <span class="eyebrow">后续变化</span>
+                            <h2 class="i18n" data-key="mainLine">AI 推演</h2>
+                        </div>
+                    </div>
+                    <div id="pv-display">
+                        <p class="placeholder i18n" data-key="pvPlaceholder">点击推荐着法查看后续变化</p>
+                    </div>
+                </section>
+
+                <section class="panel-section collapsible settings-card" id="settings-section">
+                    <button class="section-toggle" type="button" data-target="settings-body" aria-label="展开或收起基础设置">
+                        <span><span aria-hidden="true">⌁</span> 基础设置</span>
+                        <span class="toggle-icon" aria-hidden="true">▾</span>
+                    </button>
                     <div id="settings-body" class="section-body">
                         <div class="setting-row">
-                            <label for="board-size"><span class="i18n" data-key="boardSize">Board</span></label>
-                            <select id="board-size">
-                                <option value="19" selected>19×19</option>
-                                <option value="13">13×13</option>
-                                <option value="9">9×9</option>
-                            </select>
-                        </div>
-                        <div class="setting-row">
-                            <label for="komi"><span class="i18n" data-key="komi">Komi</span></label>
+                            <label for="komi"><span class="i18n" data-key="komi">贴目</span></label>
                             <select id="komi">
-                                <option value="7.5" selected>7.5</option>
-                                <option value="6.5">6.5</option>
-                                <option value="0.5">0.5</option>
-                                <option value="0">0</option>
+                                <option value="7.5" selected>7.5 目</option>
+                                <option value="6.5">6.5 目</option>
+                                <option value="0.5">0.5 目</option>
+                                <option value="0">不贴目</option>
                             </select>
                         </div>
                         <div class="setting-row">
-                            <label for="max-visits"><span class="i18n" data-key="visits">Visits</span></label>
+                            <label for="max-visits">分析强度</label>
                             <select id="max-visits">
-                                <option value="100">100</option>
-                                <option value="300">300</option>
-                                <option value="500">500</option>
-                                <option value="1000">1000</option>
-                                <option value="3000" selected>3000</option>
-                                <option value="10000">10000</option>
+                                <option value="300">轻快</option>
+                                <option value="1000" selected>均衡</option>
+                                <option value="3000">深入</option>
                             </select>
                         </div>
-                        <div class="setting-row">
-                            <label><input type="checkbox" id="show-analysis" checked> <span class="i18n" data-key="showAnalysis">Analysis</span></label>
-                            <label><input type="checkbox" id="show-ownership"> <span class="i18n" data-key="showOwnership">Ownership</span></label>
-                            <label><input type="checkbox" id="show-move-number"> <span class="i18n" data-key="showMoveNum">Move #</span></label>
-                        </div>
+                        <p class="settings-note">均衡模式适合边下边看，深入模式更准但会多等一会儿。</p>
                     </div>
-                </div>
+                </section>
 
-                <!-- Suggestions -->
-                <div class="panel-section" id="suggestions-section">
-                    <h3><span class="i18n" data-key="suggestions">Suggestions</span></h3>
-                    <div id="suggestions-list">
-                        <p class="placeholder i18n" data-key="suggestPlaceholder">Analysis shown after a move</p>
-                    </div>
+                <div class="hidden-controls" aria-hidden="true">
+                    <label for="board-size">棋盘</label>
+                    <select id="board-size" tabindex="-1">
+                        <option value="19" selected>19×19</option>
+                    </select>
+                    <input type="checkbox" id="show-analysis" checked tabindex="-1">
+                    <input type="checkbox" id="show-ownership" tabindex="-1">
+                    <input type="checkbox" id="show-move-number" tabindex="-1">
                 </div>
-
-                <!-- PV -->
-                <div class="panel-section" id="pv-section">
-                    <h3><span class="i18n" data-key="mainLine">Main line</span></h3>
-                    <div id="pv-display">
-                        <p class="placeholder i18n" data-key="pvPlaceholder">Click a suggestion to view the line</p>
-                    </div>
-                </div>
-            </div>
+            </aside>
         </main>
 
-        <!-- Board recognition modal -->
-        <div id="recognize-modal" class="modal-overlay" style="display:none">
-            <div class="modal-content">
+        <div id="recognize-modal" class="modal-overlay" style="display:none" role="dialog" aria-modal="true" aria-labelledby="recognize-title">
+            <div class="modal-content recognize-modal-content">
                 <div class="modal-header">
-                    <h3>📷 <span class="i18n" data-key="recognize">Photo</span></h3>
-                    <button id="modal-close" class="modal-close-btn">✕</button>
+                    <div>
+                        <span class="eyebrow">截图识别</span>
+                        <h2 id="recognize-title">校正棋盘</h2>
+                    </div>
+                    <button id="modal-close" class="modal-close-btn" type="button" aria-label="关闭">×</button>
                 </div>
                 <div class="modal-body">
                     <div id="recognize-loading" style="display:none">
-                        <p><span class="i18n" data-key="recognizing">🤖 Recognising board, please wait…</span></p>
+                        <span class="recognize-spinner" aria-hidden="true"></span>
+                        <h3>正在识别棋盘</h3>
+                        <p class="i18n" data-key="recognizing">第一次识别可能需要几秒钟…</p>
                     </div>
+
                     <div id="recognize-result" style="display:none">
                         <div class="recognize-preview-row">
                             <div class="recognize-preview-col">
-                                <p class="preview-label"><span class="i18n" data-key="recognizeResult">Recognition result</span></p>
-                                <canvas id="recognize-board-canvas" width="380" height="380"></canvas>
+                                <canvas id="recognize-board-canvas" width="420" height="420" aria-label="识别结果；点击交叉点校正棋子"></canvas>
                             </div>
-                        </div>
-                        <div id="recognize-info">
-                            <span id="recognize-confidence"></span>
-                            <span id="recognize-auto-status"></span>
-                        </div>
-                        <p class="recognize-hint"><span class="i18n" data-key="recognizeHint">Click to correct: empty → ⚫ → ⚪ → empty</span></p>
-                        <div class="recognize-actions">
-                            <button id="btn-recognize-confirm" class="btn-primary">✅ <span class="i18n" data-key="confirmLoad">Load board</span></button>
-                            <button id="btn-recognize-retry">📷 <span class="i18n" data-key="retakePhoto">Retake photo</span></button>
-                            <div class="recognize-color-select">
-                                <label><span class="i18n" data-key="nextPlayer">Next to play:</span></label>
+                            <aside class="recognize-guide">
+                                <span class="guide-step">01</span>
+                                <h3>检查识别结果</h3>
+                                <p>点击识别错误的交叉点，可在空位、黑子、白子间循环切换。</p>
+                                <span class="guide-step">02</span>
+                                <h3>确认下一手</h3>
+                                <label for="recognize-next-player">轮到哪一方落子？</label>
                                 <select id="recognize-next-player">
-                                    <option value="1">⚫ <span class="i18n" data-key="black">B</span></option>
-                                    <option value="2">⚪ <span class="i18n" data-key="white">W</span></option>
+                                    <option value="1">● 黑方</option>
+                                    <option value="2">○ 白方</option>
                                 </select>
-                            </div>
+                                <div id="recognize-info">
+                                    <span id="recognize-confidence"></span>
+                                    <span id="recognize-auto-status"></span>
+                                </div>
+                            </aside>
+                        </div>
+
+                        <p class="recognize-hint"><span aria-hidden="true">⌖</span> 点击棋盘交叉点修正：空位 → 黑子 → 白子 → 空位</p>
+                        <div class="recognize-actions">
+                            <button id="btn-recognize-retry" type="button">重新选择截图</button>
+                            <button id="btn-recognize-confirm" class="btn-primary" type="button">确认局面，开始推演</button>
                         </div>
                     </div>
                 </div>
             </div>
         </div>
 
-        <!-- Auth modal (login / register) -->
-        <div id="auth-modal" class="modal-overlay" style="display:none">
-            <div class="modal-content auth-modal-content">
-                <div class="modal-header">
-                    <div class="auth-tabs">
-                        <button class="auth-tab active" id="tab-login">
-                            <span class="i18n" data-key="signIn">Sign in</span>
-                        </button>
-                        <button class="auth-tab" id="tab-register">
-                            <span class="i18n" data-key="register">Register</span>
-                        </button>
-                    </div>
-                    <button id="auth-modal-close" class="modal-close-btn">✕</button>
-                </div>
-                <div class="modal-body">
-                    <div id="auth-error" class="auth-error" style="display:none"></div>
-                    <form id="auth-form" class="auth-form" autocomplete="on">
-                        <label for="auth-username-input" class="i18n" data-key="username">Username</label>
-                        <input type="text" id="auth-username-input" autocomplete="username">
-                        <label for="auth-password-input" class="i18n" data-key="password">Password</label>
-                        <input type="password" id="auth-password-input" autocomplete="current-password">
-                        <button type="submit" id="auth-submit" class="btn-primary i18n" data-key="signIn">Sign in</button>
-                    </form>
-                </div>
-            </div>
-        </div>
     </div>
 
-    <!-- Socket.IO -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js"></script>
-    <!-- Go Board -->
+    <script src="vendor/socket.io.min.js"></script>
     <script src="js/goboard.js"></script>
-    <!-- App Logic -->
     <script src="js/app.js"></script>
 </body>
 </html>

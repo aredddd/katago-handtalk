@@ -1,246 +1,86 @@
-# KataGo Web
+# 手谈 · KataGo 本地复盘版
 
-A web-based Go (Weiqi/Baduk) AI interface powered by [KataGo](https://github.com/lightvector/KataGo). Play and analyse against one of the strongest Go engines directly from your browser — desktop or mobile.
+面向围棋新手的本地 Web 界面：只保留对局、悔棋、停一手、认输、形势判断和
+KataGo 分析。服务固定监听 `127.0.0.1`，棋谱、截图和分析都留在本机。
 
-![Go Board](https://img.shields.io/badge/Game-Go%20%2F%20Weiqi-black) ![Python](https://img.shields.io/badge/Python-3.10%2B-blue) ![License](https://img.shields.io/badge/License-MIT-green)
+## 现在能做什么
 
-## Features
+- 自由推演，或选择执黑 / 执白和 AI 对弈
+- 显示 KataGo 推荐点、胜率、目差、主要变化和全盘形势
+- 从中局截图继续：选择图片、拉起 Windows 截图工具，或直接粘贴剪贴板图片
+- 识别后先在预览盘修正黑白棋子，再指定下一手方并载入
+- 共享一个棋局窗口做近实时复盘；局面连续两次识别一致后才同步
+- macOS 风格毛玻璃界面；超宽屏左右双栏、棋盘居中，窄屏自动改为纵向布局
 
-- **KaTrain-style analysis UI** — move candidates with color-coded circles (green → purple gradient based on score difference), win rate bar, and score estimation
-- **Multiple play modes** — Free play, play vs AI (Black or White), and AI vs AI
-- **Move navigation** — full move history with slider, keyboard shortcuts (← → Home End), and branch navigation
-- **Camera board recognition** — take a photo of a real Go board, recognize the position using a CNN deep learning model ([noword/image2sgf](https://github.com/noword/image2sgf)), and continue analysis from there
-- **User accounts** — register / sign-in with JWT-based sessions; analysis features require login
-- **Admin panel** (`/admin`) — manage users, toggle open registration, change the admin password
-- **Multi-language UI** — switch between English and 中文 on the fly (preference saved locally)
-- **Resilient engine layer** — a Circuit Breaker protects the server from a hung or crashed KataGo process, failing fast instead of blocking, and recovers automatically
-- **Responsive analysis** — moving on the board cancels any in-flight analysis of the previous position so the engine always works on the latest board
-- **Mobile-friendly** — responsive layout, pinch-to-zoom, two-step move confirmation to prevent misclicks
-- **Real stone sounds** — KaTrain-style placement sounds with 5 random variations + capture sound
-- **Configurable** — adjustable komi (7.5 / 6.5 / 0.5 / 0), search visits (100–10000), board size (9×9, 13×13, 19×19)
+## 启动
 
-## Architecture
+当前分支按同一 `outputs` 目录中的 KataGo、模型和 5060 配置组织。
 
-KataGo Web follows a **3-tier (n-layer) architecture**:
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│  Presentation   Browser — Canvas board, Socket.IO client,    │
-│                 login / admin pages, i18n                    │
-├─────────────────────────────────────────────────────────────┤
-│  Application    Flask + Socket.IO server (app.py)            │
-│                   ├── Proxy        — JWT auth (require_auth)  │
-│                   └── Circuit Breaker — engine protection    │
-├─────────────────────────────────────────────────────────────┤
-│  Engine / Data  KataGoFacade → KataGoEngine → KataGo process │
-│                 user_store (SQLite: users + settings)        │
-└─────────────────────────────────────────────────────────────┘
-```
-
-### Project layout
-
-```
-katago-web/
-├── server/
-│   ├── app.py                # Entry point: build via factory, start engine, run
-│   ├── app_factory.py        # create_app() — builds & wires Flask + Socket.IO
-│   ├── analysis_service.py   # AnalysisService — application-logic service (RealSubject)
-│   ├── engine_lifecycle.py   # Create / start the KataGo engine
-│   ├── sockets.py            # Socket.IO event handlers (connect / analyze / play_ai …)
-│   ├── routes/               # HTTP blueprints (pages, auth, admin, recognition)
-│   ├── config.py             # Environment-backed configuration
-│   ├── events.py             # WebSocket event-name constants
-│   ├── exceptions.py         # Custom exception hierarchy
-│   ├── katago_facade.py      # KataGoFacade — abstract engine interface (Façade)
-│   ├── katago_engine.py      # KataGoEngine — concrete Façade over the subprocess
-│   ├── circuit_breaker.py    # Circuit Breaker stability pattern
-│   ├── demo_circuit_breaker.py  # Standalone Circuit Breaker demo (GPU-free)
-│   ├── demo_engine.py        # Demo-only fault-injecting engine (web CB demo)
-│   ├── auth.py               # JWT helpers + Proxy decorators (require_auth/admin)
-│   ├── user_store.py         # SQLite persistence (users + settings)
-│   └── noword_recognizer.py  # CNN board recognition (FCOS + EfficientNet)
-├── static/
-│   ├── index.html            # Main UI
-│   ├── admin.html            # Admin panel
-│   ├── css/
-│   │   ├── style.css         # Main responsive styles
-│   │   └── admin.css         # Admin panel styles
-│   ├── js/
-│   │   ├── app.js            # App logic, WebSocket, auth, i18n
-│   │   ├── goboard.js        # Canvas board rendering, interaction, sounds
-│   │   └── admin.js          # Admin panel logic
-│   └── sounds/               # Stone placement & capture audio files
-├── config/
-│   └── default_gtp.cfg       # KataGo engine configuration
-├── models/
-│   └── image2sgf/            # CNN model weights (board.pth + stone.pth)
-├── setup.ps1                 # One-click Windows setup script
-├── demo_suspend_katago.ps1   # Suspend/resume KataGo for the Circuit Breaker demo
-└── requirements.txt
-```
-
-### Design patterns
-
-The server applies several classic patterns (used here for clean separation, substitutability, and resilience):
-
-| Pattern | Where | Purpose |
-|---------|-------|---------|
-| **Façade** (GoF) | `KataGoFacade` / `KataGoEngine` | Hide the KataGo subprocess, stdin/stdout JSON protocol, and threading behind a small interface |
-| **Proxy** (GoF) | `require_auth` / `require_admin` decorators | Intercept requests and enforce JWT authentication/authorisation before the real handler runs |
-| **Observer** | Socket.IO (`emit` / `on`) | Server broadcasts analysis, AI moves, and engine status to subscribed browser clients |
-| **Circuit Breaker** | `CircuitBreaker` | Fail fast and auto-recover when the KataGo engine is unresponsive |
-
-## Prerequisites
-
-- **Python 3.10+**
-- **KataGo** — download from [KataGo releases](https://github.com/lightvector/KataGo/releases) (OpenCL or CUDA backend)
-- **KataGo model weights** — download from [KataGo models](https://katagotraining.org/)
-- **NVIDIA GPU** (recommended) — for both KataGo inference and CNN board recognition
-
-## Installation
-
-### Quick Setup (Windows)
-
-Run the automated setup script:
+第一次运行：
 
 ```powershell
-.\setup.ps1
+.\setup-local.ps1
 ```
 
-This will download KataGo, model weights, install Python dependencies, generate tuning, and start the server.
+日常使用直接双击 `start-local.cmd`。引擎就绪后浏览器会打开：
 
-### Manual Setup
-
-1. **Install KataGo** somewhere on your system (e.g., `C:\katago\`):
-   - `katago.exe` (OpenCL or CUDA build)
-   - A model weights file (`.bin.gz`)
-
-2. **Install Python dependencies**:
-
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-   This includes Flask, Flask-SocketIO, eventlet, OpenCV, sgfmill, PyTorch, plus **PyJWT** and **bcrypt** for authentication.
-
-   For a CUDA build of PyTorch (much faster board recognition):
-
-   ```bash
-   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
-   ```
-
-3. **Download CNN models** for board recognition (optional):
-
-   Download `board.pth` and `stone.pth` from [noword/image2sgf](https://github.com/noword/image2sgf) and place them in `models/image2sgf/`.
-
-4. **Configure paths** via environment variables (see table below) or edit `server/config.py`.
-
-## Usage
-
-```bash
-cd katago-web
-python server/app.py
+```text
+http://127.0.0.1:5000
 ```
 
-Open `http://localhost:5000` in your browser.
+退出时在启动窗口按 `Ctrl+C`。完整路径和无浏览器启动方式见
+[LOCAL-SETUP.md](LOCAL-SETUP.md)。
 
-### Accounts & sign-in
+## 截图导入
 
-Analysis features require a signed-in account.
+截图卡片提供三种入口：
 
-- **First run** automatically creates a built-in admin account: **username `admin`, password `admin`** — change it from the admin panel after first login.
-- Anyone can **register** a normal account from the sign-in dialog (unless the admin has closed registration).
-- Sessions use a JWT stored in the browser's `localStorage` (24-hour lifetime).
+1. **选择截图**：从文件中选择 PNG / JPG。
+2. **拉起截图**：调用 Windows 截图工具；截完回到网页按 `Ctrl+V`。
+3. **粘贴图片**：读取剪贴板中的图片；页面聚焦时直接 `Ctrl+V` 也可以。
 
-### Admin panel
+识别模型目前只支持 19 路。服务端会限制上传大小、图像像素数，并把 4K/手机
+图片缩到适合显卡识别的尺寸。模型权重不纳入 Git；安装脚本会明确检查
+`models/image2sgf/board.pth` 和 `stone.pth`。
 
-Visit `http://localhost:5000/admin` (or click your username in the header when signed in as admin). From there you can:
+## 近实时复盘
 
-- View and delete user accounts (the `admin` account is protected)
-- Open or close public registration
-- Change the admin password
+点击“开始实时复盘”，在浏览器系统窗口中选择包含棋盘的窗口。程序只截取共享
+画面并在本机识别，不会替你点击第三方棋局，也不会注入或覆盖其它应用。
 
-### Remote Access
+- 棋盘变化需连续两帧一致才会写入复盘树。
+- 单步合法变化保留完整手顺；漏过多手时按当前画面重新建立局面。
+- 截图无法看出“停一手”，因此可用“当前轮到”下拉框手动校正。
+- 停止共享会立即取消识别和在途分析。
 
-To access from your phone or another device, use [Tailscale](https://tailscale.com/) or any VPN/tunneling solution, then visit `http://<your-ip>:5000`.
+## 本地目录约定
 
-### Keyboard Shortcuts
+```text
+outputs/
+├─ KataGo-Web-Beginner/       # 本项目
+│  ├─ models/image2sgf/       # board.pth、stone.pth（不提交）
+│  ├─ server/                 # Flask / Socket.IO / KataGo 进程层
+│  ├─ static/                 # Canvas 棋盘与界面
+│  ├─ setup-local.ps1
+│  └─ start-local.cmd
+├─ KataGo/                    # katago.exe 与棋力模型
+└─ KaTrain/analysis_5060.cfg  # RTX 5060 Laptop 分析配置
+```
 
-| Key | Action |
-|-----|--------|
-| `←` | Back 1 move |
-| `→` | Forward 1 move |
-| `Home` | Jump to start |
-| `End` | Jump to latest |
-| `Shift+←` | Back 10 moves |
-| `Shift+→` | Forward 10 moves |
+## 测试
 
-## Configuration
+```powershell
+node --test tests/*.test.mjs
+.\.venv\Scripts\python.exe -m pytest -q
+```
 
-### KataGo Engine
+后端对同一浏览器会话只保留最新分析；新的分析 / AI 请求会终止旧查询。KataGo
+stdout 中断会立即唤醒等待者，避免界面长时间假死。
 
-Edit `config/default_gtp.cfg` to tune KataGo parameters:
+## 上游与许可
 
-- `numSearchThreads` — number of search threads (default: 16)
-- Search visits are controlled from the web UI (100–10000, default: 3000)
-
-### Environment Variables
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `KATAGO_PATH` | `C:\katago\katago.exe` | Path to KataGo executable |
-| `KATAGO_MODEL` | `C:\katago\kata1-b18c384nbt-*.bin.gz` | Path to model weights |
-| `KATAGO_CONFIG` | `config/default_gtp.cfg` | Path to KataGo config |
-| `KATAGO_MAX_WAIT` | `300` | Per-query engine timeout, seconds (lower it, e.g. `5`, for a hung-engine demo) |
-| `PORT` | `5000` | Server port |
-| `DEFAULT_MAX_VISITS` | `3000` | Default analysis visits |
-| `QUICK_MAX_VISITS` | `100` | Visits for quick analysis |
-| `JWT_SECRET` | *(dev default)* | Secret used to sign JWT session tokens — **set a strong value in production** |
-| `FLASK_SECRET_KEY` | *(dev default)* | Flask session secret — **set a strong value in production** |
-| `CB_THRESHOLD` | `3` | Consecutive engine failures before the Circuit Breaker opens |
-| `CB_RESET_TIMEOUT` | `30` | Seconds the breaker stays OPEN before a trial call (HALF_OPEN) |
-| `CB_DEMO_FAULT_INJECTION` | *(unset)* | **Demo only** — replace the engine with a toggleable fault injector (see *Circuit Breaker demos*) |
-
-> **Security note:** the default `JWT_SECRET`, the Flask `SECRET_KEY`, and the open CORS policy are convenient for local/LAN use and demos. For a public deployment, set a strong `JWT_SECRET`, restrict CORS origins, and serve over HTTPS.
-
-### Circuit Breaker demos
-
-Two ways to see the Circuit Breaker trip and recover:
-
-- **Standalone (no GPU):** `python server/demo_circuit_breaker.py` drives the real
-  `CircuitBreaker` through CLOSED → OPEN (fail-fast) → HALF_OPEN → CLOSED and prints
-  a timestamped log.
-- **Live web (no GPU):** start with `CB_DEMO_FAULT_INJECTION=1` (and a short
-  `CB_RESET_TIMEOUT`, e.g. `8`) to replace the engine with a fault injector. A
-  bottom-right button toggles failures; the status indicator cycles red → amber →
-  green as the breaker opens and recovers. The toggle and the demo engine exist
-  only when the flag is set.
-- **Real fault (needs KataGo):** with the real engine running, set a short
-  `KATAGO_MAX_WAIT` (e.g. `5`) and **freeze** the engine with
-  `./demo_suspend_katago.ps1` (`-Resume` to unfreeze). Frozen, the engine stays
-  "running" so requests reach the breaker and time out — a genuine hung-engine
-  fault that trips it and then recovers. (Killing the process does *not* trip the
-  breaker — a dead engine is caught by the `is_running()` check before the
-  breaker.)
-
-See `TP2/demo-circuit-breaker.md` for the full runbook.
-
-## How It Works
-
-1. **Backend**: Flask + Socket.IO server manages a KataGo subprocess via the Analysis JSON API. The `KataGoFacade` hides the subprocess and protocol; a `CircuitBreaker` wraps every engine call.
-2. **Authentication**: `require_auth` (a Proxy) verifies a JWT on every analysis request; `require_admin` guards the admin API.
-3. **Frontend**: Canvas-based Go board with real-time WebSocket updates and a zh/en i18n layer.
-4. **Analysis**: KataGo returns top move candidates with win rates, scores, and principal variations — rendered as KaTrain-style colored circles. Win rate and score are normalised to Black's perspective. Moving on the board cancels the previous in-flight analysis.
-5. **Recognition**: Photos of real boards are processed by a two-stage CNN pipeline:
-   - **FCOS** (ResNet50-FPN) detects the four corners of the board
-   - **EfficientNet-B3** classifies each intersection as empty / black / white
-
-## Credits
-
-- [KataGo](https://github.com/lightvector/KataGo) by lightvector — the Go engine
-- [noword/image2sgf](https://github.com/noword/image2sgf) — CNN board recognition models
-- [KaTrain](https://github.com/sanderland/katrain) — UI design inspiration and stone sounds
-
-## License
-
-MIT
+本分支基于 [KataGo Web](https://github.com/michelzzw/katago-web)，使用
+[KataGo](https://github.com/lightvector/KataGo) 进行分析，并接入
+[noword/image2sgf](https://github.com/noword/image2sgf) 的识图结构与权重。
+项目代码沿用仓库的 MIT License。大型引擎、棋力模型和识图权重需分别遵守其
+上游许可；提交或分发前请自行确认权利，因此本仓库不打包这些权重。

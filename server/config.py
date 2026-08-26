@@ -3,9 +3,8 @@ Server configuration.
 
 Settings are read with the precedence:  environment variable > config.ini > default.
 
-The .ini file (repository root) holds non-secret settings — paths, port, default
-language, etc.  Secrets such as the JWT signing key are read from environment
-variables only (see auth.py) and are deliberately absent from the .ini file.
+The .ini file (repository root) holds local settings such as engine paths,
+port, default language, and analysis limits.
 """
 
 import os
@@ -35,20 +34,22 @@ def _resolve(path: str) -> str:
 
 # ── KataGo engine ────────────────────────────────────────────────────────────
 
-KATAGO_PATH: str = _get("katago", "katago_path", "KATAGO_PATH", r"C:\katago\katago.exe")
-MODEL_PATH:  str = _get("katago", "model_path", "KATAGO_MODEL",
-                        r"C:\katago\kata1-b18c384nbt-s9996604416-d4316597426.bin.gz")
+KATAGO_PATH: str = _resolve(
+    _get("katago", "katago_path", "KATAGO_PATH", r"C:\katago\katago.exe")
+)
+MODEL_PATH: str = _resolve(
+    _get("katago", "model_path", "KATAGO_MODEL",
+         r"C:\katago\kata1-b18c384nbt-s9996604416-d4316597426.bin.gz")
+)
 CONFIG_PATH: str = _resolve(_get("katago", "config_path", "KATAGO_CONFIG",
                                  os.path.join("config", "default_gtp.cfg")))
-# Per-query response timeout (seconds). Default 300 s; lower it (e.g. 5) to make
-# a hung-engine Circuit Breaker demo trip quickly. See TP2/demo-circuit-breaker.md.
+# Per-query response timeout (seconds).
 KATAGO_MAX_WAIT: int = int(_get("katago", "max_wait", "KATAGO_MAX_WAIT", "300"))
 
 # ── Server ───────────────────────────────────────────────────────────────────
 
 PORT: int               = int(_get("server", "port", "PORT", "5000"))
-DEFAULT_MAX_VISITS: int = int(_get("server", "default_max_visits", "DEFAULT_MAX_VISITS", "3000"))
-QUICK_MAX_VISITS: int   = int(_get("server", "quick_max_visits", "QUICK_MAX_VISITS", "100"))
+DEFAULT_MAX_VISITS: int = int(_get("server", "default_max_visits", "DEFAULT_MAX_VISITS", "1000"))
 
 # ── Internationalisation ──────────────────────────────────────────────────────
 

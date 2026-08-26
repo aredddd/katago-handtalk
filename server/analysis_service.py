@@ -2,11 +2,11 @@
 analysis_service.py — application-logic service for Go analysis.
 
 AnalysisService is the "RealSubject" of the Proxy pattern: the actual service
-that the authenticated request reaches.  It runs analysis through the Circuit
+that the local transport reaches.  It runs analysis through the Circuit
 Breaker and the KataGo Façade, and is deliberately **transport-agnostic** — it
 returns results or raises engine exceptions, and never touches Flask or
 Socket.IO.  The Socket.IO layer (sockets.py) handles sessions, single-flight
-coordination and emitting events; the Proxy (auth.require_auth) guards access.
+coordination and emitting events.
 """
 
 from dataclasses import dataclass, field
@@ -89,7 +89,7 @@ class AnalysisService:
             query_id=query_id,
         ))
 
-    def best_move(self, params: AnalysisParams) -> Optional[dict]:
+    def best_move(self, params: AnalysisParams, query_id=None) -> Optional[dict]:
         """
         Ask the engine for the best move.  Returns a move dict, or None if no
         move is available.  Raises engine exceptions on failure.
@@ -101,6 +101,7 @@ class AnalysisService:
             max_visits=params.max_visits,
             initial_stones=params.initial_stones,
             initial_player=params.initial_player,
+            query_id=query_id,
         ))
         if result and result.get("moves"):
             best = result["moves"][0]

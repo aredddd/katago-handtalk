@@ -25,8 +25,8 @@ HALF_OPEN → OPEN      : trial call fails
 
 Invariant: in HALF_OPEN exactly ONE trial call is allowed through; any
 other call arriving while that probe is in flight fails fast with
-CircuitOpenError.  This is enforced even under concurrent (eventlet
-green-thread) access via the internal lock.
+CircuitOpenError. This is enforced under concurrent threaded access by the
+internal lock.
 """
 
 import time
@@ -94,10 +94,12 @@ class CircuitBreaker(CircuitBreakerBase):
         threshold: int = 3,
         reset_timeout: float = 30.0,
         on_state_change: Optional[Callable] = None,
+        excluded_exceptions: tuple[type[Exception], ...] = (),
     ):
         self.threshold       = threshold
         self.reset_timeout   = reset_timeout
         self.on_state_change = on_state_change
+        self.excluded_exceptions = excluded_exceptions
 
         self._state         = State.CLOSED
         self._failure_count = 0
@@ -131,6 +133,12 @@ class CircuitBreaker(CircuitBreakerBase):
             result = operation()
             self._on_success()
             return result
+        except self.excluded_exceptions:
+            # Invalid positions/parameters are request errors, not evidence that
+            # the local KataGo process is unhealthy. They also prove a HALF_OPEN
+            # probe reached a responsive engine, so close the circuit normally.
+            self._on_success()
+            raise
         except Exception:
             self._on_failure()
             raise

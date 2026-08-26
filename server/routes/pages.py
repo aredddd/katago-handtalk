@@ -3,7 +3,6 @@ pages.py — static pages and system-information endpoints.
 
 Routes:
   GET /                    main UI
-  GET /admin               admin panel UI
   GET /api/status          engine + circuit breaker status
   GET /api/circuit-status  circuit breaker state only
   GET /api/config          client-facing config (default / available languages)
@@ -23,11 +22,6 @@ def _service():
 @pages_bp.route("/")
 def index():
     return send_from_directory(current_app.static_folder, "index.html")
-
-
-@pages_bp.route("/admin")
-def admin_page():
-    return send_from_directory(current_app.static_folder, "admin.html")
 
 
 @pages_bp.route("/api/status")
@@ -52,5 +46,4 @@ def api_config():
     return jsonify({
         "default_language":    DEFAULT_LANGUAGE,
         "available_languages": AVAILABLE_LANGUAGES,
-        "demo_fault_injection": current_app.config.get("DEMO_FAULT_INJECTION", False),
     })

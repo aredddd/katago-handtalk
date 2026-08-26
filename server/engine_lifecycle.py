@@ -25,10 +25,6 @@ def start_engine(engine: KataGoEngine) -> bool:
     Verify the executable/model exist and start the KataGo subprocess.
     Returns True on success.
     """
-    # Demo-only fault-injection engine: no real subprocess to start.
-    if getattr(engine, "demo_mode", False):
-        logger.warning("[DEMO] fault-injection engine — skipping real KataGo startup")
-        return engine.start()
     if not os.path.isfile(KATAGO_PATH):
         logger.error(f"KataGo executable not found: {KATAGO_PATH}")
         return False

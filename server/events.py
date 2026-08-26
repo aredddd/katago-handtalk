@@ -9,8 +9,8 @@ mismatched string literals between emit() and on() calls.
 class Events:
     # ── Client → Server ──────────────────────────────────────────────
     ANALYZE         = "analyze"
-    QUICK_ANALYZE   = "quick_analyze"
     PLAY_AI         = "play_ai"
+    CANCEL          = "cancel"
 
     # ── Server → Client ──────────────────────────────────────────────
     ANALYSIS        = "analysis"

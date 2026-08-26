@@ -36,7 +36,9 @@ if __name__ == "__main__":
     engine = app.extensions["engine"]
     if start_engine(engine):
         print(f"\n  Server running at http://localhost:{PORT}\n")
-        socketio.run(app, host="0.0.0.0", port=PORT, debug=False)
+        # This edition has no account layer, so never expose it to the LAN by
+        # default.  The browser and engine both run on the same machine.
+        socketio.run(app, host="127.0.0.1", port=PORT, debug=False)
     else:
         print("\n  Engine failed to start — check configuration paths.")
         sys.exit(1)

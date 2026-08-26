@@ -1,6 +1,0 @@
-Traceback (most recent call last):
-  File "<string>", line 1, in <module>
-    import sys; sys.stdout.reconfigure(encoding='utf-8'); [print(l, end='') for l in sys.stdin]
-                                                           ~~~~~^^^^^^^^^^^
-UnicodeEncodeError: 'utf-8' codec can't encode character '\udcac' in position 5: surrogates not allowed
-椤垫暟: 118

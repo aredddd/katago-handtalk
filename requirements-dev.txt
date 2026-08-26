@@ -1,0 +1,4 @@
+-r requirements.txt
+pytest>=8.0,<9
+requests>=2.31
+websocket-client>=1.8

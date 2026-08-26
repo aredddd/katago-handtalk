@@ -12,12 +12,14 @@ models/image2sgf/*.pth
 
 # Environment
 .env
+.runtime/
 .venv/
 venv/
 
 # IDE
 .vscode/
 .idea/
+.claude/
 *.swp
 *.swo
 
@@ -29,6 +31,5 @@ desktop.ini
 # Logs
 *.log
 
-# Runtime database (created on first run; contains user/password hashes)
-server/users.db
+# Runtime databases
 *.db

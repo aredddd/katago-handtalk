@@ -14,6 +14,7 @@ import os
 import time
 import queue
 import logging
+import re
 
 from katago_facade import KataGoFacade
 from exceptions import EngineNotRunningError, EngineTimeoutError, EngineQueryError
@@ -29,20 +30,100 @@ class KataGoEngine(KataGoFacade):
         self.model_path = model_path
         self.config_path = config_path
         self.max_wait = max_wait
+        self.report_perspective = self._read_report_perspective(config_path)
 
         self.process = None
         self.lock = threading.Lock()
+        self.response_queues_lock = threading.Lock()
+        self.stdin_lock = threading.Lock()
         self.response_queues = {}  # id -> Queue
         self.reader_thread = None
         self.running = False
         self.ready = False
         self.query_counter = 0
 
+    def _mark_engine_unavailable(self, reason):
+        """Mark the engine unavailable and wake every pending query.
+
+        Queue registration and failure are coordinated by the same lock.  This
+        prevents a query from being registered immediately after an stdout EOF
+        has taken the pending-queue snapshot and then waiting until max_wait.
+        """
+        with self.response_queues_lock:
+            self.running = False
+            self.ready = False
+            pending_queues = list(self.response_queues.values())
+            self.response_queues.clear()
+
+        for pending_queue in pending_queues:
+            pending_queue.put(EngineNotRunningError(reason))
+
+    @staticmethod
+    def _is_intermediate_response(response):
+        """Return whether a KataGo message is not the final query result."""
+        if response.get("isDuringSearch"):
+            return True
+
+        # KataGo can emit an id-scoped warning before the actual result.  A
+        # warning attached to a normal result must not make us drop that result.
+        result_fields = ("rootInfo", "moveInfos", "ownership", "policy")
+        return (
+            "warning" in response
+            and "error" not in response
+            and not any(field in response for field in result_fields)
+        )
+
+    @staticmethod
+    def _read_report_perspective(config_path):
+        """Read KataGo's configured analysis reporting perspective."""
+        perspective = "BLACK"
+        try:
+            with open(config_path, "r", encoding="utf-8") as cfg:
+                for line in cfg:
+                    match = re.match(
+                        r"^\s*reportAnalysisWinratesAs\s*=\s*"
+                        r"(BLACK|WHITE|SIDETOMOVE)\b",
+                        line.split("#", 1)[0],
+                        flags=re.IGNORECASE,
+                    )
+                    if match:
+                        perspective = match.group(1).upper()
+        except OSError:
+            logger.warning(
+                "Could not read analysis perspective from %s; assuming BLACK",
+                config_path,
+            )
+        return perspective
+
+    def _to_black_perspective(self, winrate, score_lead, current_player):
+        """Normalize KataGo values to black win probability / black lead."""
+        if self._should_invert_perspective(current_player):
+            return 1.0 - winrate, -score_lead
+        return winrate, score_lead
+
+    def _should_invert_perspective(self, current_player):
+        """Return whether configured values need inversion to black's view."""
+        return self.report_perspective == "WHITE" or (
+            self.report_perspective == "SIDETOMOVE"
+            and str(current_player).upper() == "W"
+        )
+
     def start(self):
         """Launch the KataGo process and wait until it passes the readiness probe."""
         if self.process and self.process.poll() is None:
-            logger.warning("KataGo is already running")
-            return True
+            if self.running:
+                logger.warning("KataGo is already running")
+                return True
+
+            # stdout may have failed just before the OS process exits.  Do not
+            # report that dead connection as healthy on a restart attempt.
+            stale_process = self.process
+            logger.warning("Replacing KataGo process with unavailable stdout")
+            try:
+                stale_process.terminate()
+                stale_process.wait(timeout=5)
+            except Exception:
+                stale_process.kill()
 
         cmd = [
             self.katago_path,
@@ -68,12 +149,18 @@ class KataGoEngine(KataGoFacade):
             logger.error(f"Failed to start KataGo: {e}")
             return False
 
-        self.running = True
+        with self.response_queues_lock:
+            self.running = True
 
-        self.reader_thread = threading.Thread(target=self._read_stdout, daemon=True)
+        process = self.process
+        self.reader_thread = threading.Thread(
+            target=self._read_stdout, args=(process,), daemon=True
+        )
         self.reader_thread.start()
 
-        self.stderr_thread = threading.Thread(target=self._read_stderr, daemon=True)
+        self.stderr_thread = threading.Thread(
+            target=self._read_stderr, args=(process,), daemon=True
+        )
         self.stderr_thread.start()
 
         logger.info("Waiting for KataGo engine to become ready "
@@ -111,44 +198,72 @@ class KataGoEngine(KataGoFacade):
 
     def stop(self):
         """Gracefully terminate the KataGo process."""
-        self.running = False
-        if self.process and self.process.poll() is None:
+        self._mark_engine_unavailable("KataGo engine was stopped")
+        process = self.process
+        if process and process.poll() is None:
             try:
-                self.process.stdin.close()
-                self.process.terminate()
-                self.process.wait(timeout=5)
+                with self.stdin_lock:
+                    process.stdin.close()
+                process.terminate()
+                process.wait(timeout=5)
             except Exception:
-                self.process.kill()
+                process.kill()
             logger.info("KataGo stopped")
-        self.ready = False
 
-    def _read_stdout(self):
+    def _read_stdout(self, process=None):
         """Background thread: read newline-delimited JSON responses from stdout."""
+        process = process or self.process
+        failure_reason = None
         try:
-            for line in self.process.stdout:
-                if not self.running:
+            if process is None or process.stdout is None:
+                raise RuntimeError("KataGo stdout pipe is unavailable")
+
+            while True:
+                line = process.stdout.readline()
+                if not line:
+                    if process is self.process and self.running:
+                        failure_reason = "KataGo stdout closed unexpectedly"
                     break
-                line = line.decode("utf-8").strip()
+                if process is not self.process or not self.running:
+                    break
+                if isinstance(line, bytes):
+                    line = line.decode("utf-8", errors="replace")
+                line = line.strip()
                 if not line:
                     continue
                 try:
                     response = json.loads(line)
+                    if self._is_intermediate_response(response):
+                        logger.debug(
+                            "Ignoring intermediate response for query id: %s",
+                            response.get("id", ""),
+                        )
+                        continue
                     query_id = response.get("id", "")
-                    if query_id in self.response_queues:
-                        self.response_queues[query_id].put(response)
+                    with self.response_queues_lock:
+                        response_queue = self.response_queues.get(query_id)
+                    if response_queue is not None:
+                        response_queue.put(response)
                     else:
                         logger.debug(f"Received response for unknown query id: {query_id}")
                 except json.JSONDecodeError:
                     logger.debug(f"Non-JSON stdout line: {line}")
         except Exception as e:
-            if self.running:
-                logger.error(f"Error reading KataGo stdout: {e}")
+            if process is self.process and self.running:
+                failure_reason = f"Error reading KataGo stdout: {e}"
+        finally:
+            if failure_reason and process is self.process:
+                logger.error(failure_reason)
+                self._mark_engine_unavailable(failure_reason)
 
-    def _read_stderr(self):
+    def _read_stderr(self, process=None):
         """Background thread: forward KataGo stderr to the Python logger."""
+        process = process or self.process
         try:
-            for line in self.process.stderr:
-                if not self.running:
+            if process is None or process.stderr is None:
+                return
+            for line in process.stderr:
+                if process is not self.process or not self.running:
                     break
                 line = line.decode("utf-8").strip()
                 if line:
@@ -173,9 +288,6 @@ class KataGoEngine(KataGoFacade):
             EngineNotRunningError: process not alive or stdin write failed.
             EngineTimeoutError:    no response within max_wait seconds.
         """
-        if not self.process or self.process.poll() is not None:
-            raise EngineNotRunningError("KataGo process is not running")
-
         if query_id is None:
             query_id = self._next_id()
 
@@ -205,20 +317,41 @@ class KataGoEngine(KataGoFacade):
             query_obj["includePolicy"] = True
 
         resp_queue = queue.Queue()
-        self.response_queues[query_id] = resp_queue
+        with self.response_queues_lock:
+            process = self.process
+            if (
+                not self.running
+                or process is None
+                or process.poll() is not None
+            ):
+                raise EngineNotRunningError("KataGo process is not running")
+            if query_id in self.response_queues:
+                raise EngineQueryError(f"Duplicate KataGo query id: {query_id}")
+            self.response_queues[query_id] = resp_queue
 
         query_json = json.dumps(query_obj) + "\n"
         try:
-            self.process.stdin.write(query_json.encode("utf-8"))
-            self.process.stdin.flush()
+            with self.stdin_lock:
+                if process is not self.process or not self.running:
+                    raise BrokenPipeError("KataGo stopped before query was sent")
+                process.stdin.write(query_json.encode("utf-8"))
+                process.stdin.flush()
         except Exception as e:
             logger.error(f"Failed to send query to KataGo: {e}")
-            del self.response_queues[query_id]
+            if process is self.process:
+                self._mark_engine_unavailable(
+                    f"KataGo stdin became unavailable: {e}"
+                )
+            else:
+                with self.response_queues_lock:
+                    self.response_queues.pop(query_id, None)
             raise EngineNotRunningError(f"Failed to write to KataGo stdin: {e}") from e
 
         # Wait for response
         try:
             response = resp_queue.get(timeout=self.max_wait)
+            if isinstance(response, EngineNotRunningError):
+                raise response
             return response
         except queue.Empty:
             logger.warning(f"Query {query_id} timed out after {self.max_wait}s")
@@ -232,7 +365,8 @@ class KataGoEngine(KataGoFacade):
                 f"KataGo did not respond within {self.max_wait}s"
             )
         finally:
-            self.response_queues.pop(query_id, None)
+            with self.response_queues_lock:
+                self.response_queues.pop(query_id, None)
 
     def terminate(self, query_id) -> None:
         """
@@ -244,7 +378,8 @@ class KataGoEngine(KataGoFacade):
         of finishing stale work.  Errors are swallowed — termination is
         an optimisation, never required for correctness.
         """
-        if not self.process or self.process.poll() is not None:
+        process = self.process
+        if not self.running or not process or process.poll() is not None:
             return
         cmd = {
             "id":          f"terminate_{query_id}",
@@ -252,8 +387,11 @@ class KataGoEngine(KataGoFacade):
             "terminateId": query_id,
         }
         try:
-            self.process.stdin.write((json.dumps(cmd) + "\n").encode("utf-8"))
-            self.process.stdin.flush()
+            with self.stdin_lock:
+                if process is not self.process or not self.running:
+                    return
+                process.stdin.write((json.dumps(cmd) + "\n").encode("utf-8"))
+                process.stdin.flush()
             logger.debug(f"Sent terminate for query {query_id}")
         except Exception as e:
             logger.debug(f"terminate({query_id}) failed: {e}")
@@ -301,17 +439,13 @@ class KataGoEngine(KataGoFacade):
         root_info     = result.get("rootInfo", {})
         current_player = root_info.get("currentPlayer", "B")
 
-        # KataGo reports winrate and scoreLead from the current player's
-        # perspective.  Normalise to black's perspective so the frontend
-        # can display them unconditionally as "black winrate / black lead".
+        # Normalize the configured reporting perspective to the frontend's
+        # stable black-perspective contract.
         raw_winrate    = root_info.get("winrate", 0.5)
         raw_score_lead = root_info.get("scoreLead", 0.0)
-        if current_player == "W":
-            black_winrate    = 1.0 - raw_winrate
-            black_score_lead = -raw_score_lead
-        else:
-            black_winrate    = raw_winrate
-            black_score_lead = raw_score_lead
+        black_winrate, black_score_lead = self._to_black_perspective(
+            raw_winrate, raw_score_lead, current_player
+        )
 
         parsed = {
             "currentPlayer": current_player,
@@ -322,18 +456,24 @@ class KataGoEngine(KataGoFacade):
         }
 
         for mi in move_infos:
+            move_winrate, move_score_lead = self._to_black_perspective(
+                mi.get("winrate", 0.5), mi.get("scoreLead", 0.0), current_player
+            )
             parsed["moves"].append({
                 "move":      mi.get("move", "pass"),
                 "visits":    mi.get("visits", 0),
-                "winrate":   mi.get("winrate", 0.5),
-                "scoreLead": mi.get("scoreLead", 0.0),
+                "winrate":   move_winrate,
+                "scoreLead": move_score_lead,
                 "order":     mi.get("order", 0),
                 "pv":        mi.get("pv", []),
                 "prior":     mi.get("prior", 0.0),
             })
 
         if include_ownership and "ownership" in result:
-            parsed["ownership"] = result["ownership"]
+            ownership = result["ownership"]
+            if self._should_invert_perspective(current_player):
+                ownership = [-value for value in ownership]
+            parsed["ownership"] = ownership
 
         return parsed
 

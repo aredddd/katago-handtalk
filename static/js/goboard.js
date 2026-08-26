@@ -37,6 +37,8 @@ class GoBoard {
         this.pendingMovePos = null;  // mobile two-step confirmation: preview position of the first tap
         this.currentPlayer = 1; // 1=black, 2=white
         this.initialStones = null; // recognized/placed initial stones [["B","D4"], ...]
+        this.initialPlayer = 1; // player to move before moves[] on an imported position
+        this.positionHistory = [this._boardHash()]; // root + each local move
         this.onMoveCallback = null;
         this.isMobile = window.innerWidth <= 768;
 
@@ -64,6 +66,10 @@ class GoBoard {
         return Array.from({ length: this.size }, () => new Array(this.size).fill(0));
     }
 
+    _boardHash(position = this.board) {
+        return position.map((row) => row.join("")).join("");
+    }
+
     resetBoard(newSize) {
         if (newSize) this.size = newSize;
         this.board = this.createEmptyBoard();
@@ -75,6 +81,8 @@ class GoBoard {
         this.analysisData = null;
         this.ownershipData = null;
         this.initialStones = null;
+        this.initialPlayer = 1;
+        this.positionHistory = [this._boardHash()];
         this.pendingMovePos = null;
         this._initSize();
         this.draw();
@@ -166,6 +174,8 @@ class GoBoard {
             }
         }
         this.initialStones = stones.length > 0 ? stones : null;
+        this.initialPlayer = this.currentPlayer;
+        this.positionHistory = [this._boardHash()];
     }
 
     /** Board coords -> KataGo coords (e.g. "D4") */
@@ -262,6 +272,11 @@ class GoBoard {
             return false; // illegal point
         }
 
+        // Positional superko (Chinese rules): a move may not recreate any
+        // board already seen in this local variation.
+        const nextHash = this._boardHash(tempBoard);
+        if (this.positionHistory.slice(0, this.viewIndex + 1).includes(nextHash)) return false;
+
         // Move played — play a sound (capture sound if stones were captured, else stone sound)
         if (captured.length > 0) {
             this._playCaptureSound();
@@ -275,10 +290,12 @@ class GoBoard {
         // If playing in the middle of history, truncate the rest
         if (this.viewIndex < this.fullMoveHistory.length) {
             this.fullMoveHistory = this.fullMoveHistory.slice(0, this.viewIndex);
+            this.positionHistory = this.positionHistory.slice(0, this.viewIndex + 1);
         }
         this.fullMoveHistory.push([colorStr, gtpCoord]);
         this.viewIndex = this.fullMoveHistory.length;
         this.moves = this.fullMoveHistory.slice();
+        this.positionHistory.push(nextHash);
 
         this.lastMove = { x, y };
         this.currentPlayer = opponent;
@@ -297,12 +314,17 @@ class GoBoard {
         const colorStr = this.currentPlayer === 1 ? "B" : "W";
         if (this.viewIndex < this.fullMoveHistory.length) {
             this.fullMoveHistory = this.fullMoveHistory.slice(0, this.viewIndex);
+            this.positionHistory = this.positionHistory.slice(0, this.viewIndex + 1);
         }
         this.fullMoveHistory.push([colorStr, "pass"]);
         this.viewIndex = this.fullMoveHistory.length;
         this.moves = this.fullMoveHistory.slice();
+        this.positionHistory.push(this._boardHash());
         this.currentPlayer = this.currentPlayer === 1 ? 2 : 1;
         this.lastMove = null;
+        this.analysisData = null;
+        this.ownershipData = null;
+        this.pendingMovePos = null;
         this._fireNavigate();
     }
 
@@ -355,20 +377,34 @@ class GoBoard {
         const target = this.fullMoveHistory.slice(0, this.viewIndex);
         this.board = this.createEmptyBoard();
         this.moves = [];
-        this.currentPlayer = 1;
+        // initialPlayer also matters for an imported empty board (for example,
+        // after Black passed). It is therefore independent of initialStones.
+        this.currentPlayer = this.initialPlayer;
         this.lastMove = null;
+
+        // A screenshot-imported position is the immutable root of the local
+        // move history. Undo/navigation must return to that position instead
+        // of rebuilding from an empty board.
+        if (this.initialStones) {
+            for (const [color, gtp] of this.initialStones) {
+                const pos = this.gtpToBoard(gtp);
+                if (pos) this.board[pos.y][pos.x] = color === "B" ? 1 : 2;
+            }
+        }
+        this.positionHistory = [this._boardHash()];
 
         for (const [color, gtp] of target) {
             if (gtp === "pass") {
                 // Inline pass to avoid mutating fullMoveHistory
-                this.moves.push([this.currentPlayer === 1 ? "B" : "W", "pass"]);
-                this.currentPlayer = this.currentPlayer === 1 ? 2 : 1;
+                this.moves.push([color, "pass"]);
+                this.currentPlayer = color === "B" ? 2 : 1;
                 this.lastMove = null;
+                this.positionHistory.push(this._boardHash());
             } else {
                 const pos = this.gtpToBoard(gtp);
                 if (pos) {
                     // Inline the tryMove core logic, without mutating fullMoveHistory
-                    this._replayMove(pos.x, pos.y);
+                    this._replayMove(pos.x, pos.y, color);
                 }
             }
         }
@@ -379,9 +415,9 @@ class GoBoard {
     }
 
     /** Replay a single move (without mutating fullMoveHistory). */
-    _replayMove(x, y) {
+    _replayMove(x, y, colorString = null) {
         if (this.board[y][x] !== 0) return;
-        const color = this.currentPlayer;
+        const color = colorString ? (colorString === "B" ? 1 : 2) : this.currentPlayer;
         const opponent = color === 1 ? 2 : 1;
         this.board[y][x] = color;
 
@@ -399,6 +435,7 @@ class GoBoard {
 
         const colorStr = color === 1 ? "B" : "W";
         this.moves.push([colorStr, this.boardToGtp(x, y)]);
+        this.positionHistory.push(this._boardHash());
         this.lastMove = { x, y };
         this.currentPlayer = opponent;
     }
@@ -721,7 +758,8 @@ class GoBoard {
     /** Draw the in-circle text for a candidate: score diff + visits (KaTrain style). */
     _drawCandidateText(px, py, r, mi, bestSL, isMobile) {
         const ctx = this.ctx;
-        const scoreDiff = mi.scoreLead - bestSL; // negative = worse than best
+        const moverDirection = this.currentPlayer === 1 ? 1 : -1;
+        const scoreDiff = (mi.scoreLead - bestSL) * moverDirection;
         const diffStr = scoreDiff >= 0 ? `+${scoreDiff.toFixed(1)}` : scoreDiff.toFixed(1);
         const visits = mi.visits;
         const visitStr = visits >= 10000 ? (visits / 1000).toFixed(1) + "k" :
@@ -813,9 +851,11 @@ class GoBoard {
 
         for (let i = 0; i < pv.length; i++) {
             const pos = this.gtpToBoard(pv[i]);
-            if (!pos) continue;
-            const { px, py } = this.boardToPixel(pos.x, pos.y);
-            points.push({ px, py, isBlack, num: i + 1 });
+            if (pos) {
+                const { px, py } = this.boardToPixel(pos.x, pos.y);
+                points.push({ px, py, isBlack, num: i + 1 });
+            }
+            // A pass still consumes a turn even though it has no board point.
             isBlack = !isBlack;
         }
 
@@ -833,9 +873,10 @@ class GoBoard {
         ctx.stroke();
         ctx.setLineDash([]);
 
-        // Draw semi-transparent stones + numbers (skip the first move — it's the candidate point itself)
-        for (let i = 1; i < points.length; i++) {
-            const p = points[i];
+        // Draw semi-transparent stones + numbers. Skip move #1 only when it
+        // actually has a point; if the candidate is pass, move #2 must render.
+        for (const p of points) {
+            if (p.num === 1) continue;
             const r = cs * 0.38;
 
             ctx.globalAlpha = 0.55;

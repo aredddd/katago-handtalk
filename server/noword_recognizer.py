@@ -16,8 +16,8 @@ import os
 import io
 import time
 import logging
+import threading
 import numpy as np
-import cv2
 from PIL import Image
 from collections import namedtuple
 
@@ -25,6 +25,8 @@ logger = logging.getLogger(__name__)
 
 # ============== Constants ==============
 DEFAULT_IMAGE_SIZE = 1024
+MAX_INPUT_PIXELS = 40_000_000
+MAX_DETECTION_SIDE = 1600
 MODELS_DIR = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
     "models", "image2sgf"
@@ -35,11 +37,41 @@ STONE_PTH = os.path.join(MODELS_DIR, "stone.pth")
 # Lazy-loaded PyTorch
 _torch = None
 _torchvision = None
+_cv2 = None
 _board_model = None
 _stone_model = None
 _device = None
+_model_load_lock = threading.Lock()
+_inference_lock = threading.Lock()
 
 Point = namedtuple('Point', ['x', 'y'])
+GTP_COLUMNS = "ABCDEFGHJKLMNOPQRSTUVWXYZ"
+
+
+def board_to_initial_stones(board):
+    """
+    Convert a top-to-bottom ``0/1/2`` board matrix to KataGo initial stones.
+
+    The returned ``[["B", "D16"], ...]`` value can be copied directly into
+    an ``analyze`` Socket.IO request as ``initialStones``.
+    The side to move is deliberately not inferred from a still image.
+    """
+    size = len(board)
+    if size < 1 or size > len(GTP_COLUMNS):
+        raise ValueError(f"Unsupported board size: {size}")
+    if any(not isinstance(row, (list, tuple)) or len(row) != size for row in board):
+        raise ValueError("Board must be a square matrix")
+
+    stones = []
+    for row_index, row in enumerate(board):
+        for column_index, value in enumerate(row):
+            if value not in (0, 1, 2):
+                raise ValueError(f"Invalid board value at ({row_index}, {column_index})")
+            if value:
+                color = "B" if value == 1 else "W"
+                coordinate = f"{GTP_COLUMNS[column_index]}{size - row_index}"
+                stones.append([color, coordinate])
+    return stones
 
 
 def _ensure_torch():
@@ -51,6 +83,15 @@ def _ensure_torch():
         _torch = torch
         _torchvision = torchvision
     return _torch, _torchvision
+
+
+def _ensure_cv2():
+    """Lazy-import OpenCV so mocked recognition tests stay lightweight."""
+    global _cv2
+    if _cv2 is None:
+        import cv2
+        _cv2 = cv2
+    return _cv2
 
 
 def _get_device():
@@ -72,43 +113,48 @@ def _load_models():
     global _board_model, _stone_model
     if _board_model is not None and _stone_model is not None:
         return _board_model, _stone_model
+    with _model_load_lock:
+        if _board_model is not None and _stone_model is not None:
+            return _board_model, _stone_model
 
-    torch, torchvision = _ensure_torch()
-    device = _get_device()
+        torch, torchvision = _ensure_torch()
+        device = _get_device()
+        t0 = time.time()
+        board_model = None
+        stone_model = None
 
-    t0 = time.time()
+        # Build into local variables. Globals become visible only after both
+        # models are fully loaded, moved to the device, and in eval mode.
+        if os.path.exists(BOARD_PTH):
+            board_model = torchvision.models.detection.fcos_resnet50_fpn(
+                num_classes=4 + 1,
+                detections_per_img=8,
+                score_thresh=0.05,
+                weights_backbone=None
+            )
+            state = torch.load(BOARD_PTH, map_location='cpu', weights_only=True)
+            board_model.load_state_dict(state)
+            board_model.to(device)
+            board_model.eval()
+            logger.info(f"board.pth loaded ({time.time() - t0:.1f}s)")
+        else:
+            logger.warning(f"board.pth not found: {BOARD_PTH}")
 
-    # Board detection: FCOS ResNet50 FPN
-    if os.path.exists(BOARD_PTH):
-        _board_model = torchvision.models.detection.fcos_resnet50_fpn(
-            num_classes=4 + 1,
-            detections_per_img=8,
-            score_thresh=0.05,
-            weights_backbone=None
-        )
-        state = torch.load(BOARD_PTH, map_location='cpu', weights_only=False)
-        _board_model.load_state_dict(state)
-        _board_model.to(device)
-        _board_model.eval()
-        logger.info(f"board.pth loaded ({time.time() - t0:.1f}s)")
-    else:
-        logger.warning(f"board.pth not found: {BOARD_PTH}")
+        t1 = time.time()
+        if os.path.exists(STONE_PTH):
+            stone_model = torchvision.models.efficientnet_b3(num_classes=6)
+            state = torch.load(STONE_PTH, map_location='cpu', weights_only=True)
+            stone_model.load_state_dict(state)
+            stone_model.to(device)
+            stone_model.eval()
+            logger.info(f"stone.pth loaded ({time.time() - t1:.1f}s)")
+        else:
+            logger.warning(f"stone.pth not found: {STONE_PTH}")
 
-    t1 = time.time()
-
-    # Stone classifier: EfficientNet B3
-    if os.path.exists(STONE_PTH):
-        _stone_model = torchvision.models.efficientnet_b3(num_classes=6)
-        state = torch.load(STONE_PTH, map_location='cpu', weights_only=False)
-        _stone_model.load_state_dict(state)
-        _stone_model.to(device)
-        _stone_model.eval()
-        logger.info(f"stone.pth loaded ({time.time() - t1:.1f}s)")
-    else:
-        logger.warning(f"stone.pth not found: {STONE_PTH}")
-
-    logger.info(f"noword models loaded in {time.time() - t0:.1f}s")
-    return _board_model, _stone_model
+        _board_model = board_model
+        _stone_model = stone_model
+        logger.info(f"noword models loaded in {time.time() - t0:.1f}s")
+        return _board_model, _stone_model
 
 
 # ============== Geometry helpers ==============
@@ -237,6 +283,7 @@ def perspective_correct(board_model, img, expand=True):
     1024x1024 rectified board image.
     Returns: (corrected_image, boxes, scores)
     """
+    cv2 = _ensure_cv2()
     boxes, scores = detect_board_corners(board_model, img, expand)
     box_pos = NpBoxPosition(width=DEFAULT_IMAGE_SIZE, size=19)
 
@@ -298,13 +345,19 @@ def classify_stones(stone_model, corrected_image):
 # ============== Main entry point ==============
 
 def recognize_board_noword(image_bytes, board_size=19):
+    """Serialize GPU inference and reject unsupported sizes without allocating."""
+    if board_size != 19:
+        raise ValueError("noword CNN currently supports 19x19 boards only")
+    with _inference_lock:
+        return _recognize_board_noword_locked(image_bytes)
+
+
+def _recognize_board_noword_locked(image_bytes):
     """
     Recognize a board with the noword/image2sgf CNN models.
 
     Args:
         image_bytes: raw image bytes
-        board_size:  board side length (only 19 is supported for now)
-
     Returns:
         dict: {
             "board": [[0,1,2,...], ...],  # 19x19, 0=empty 1=black 2=white
@@ -314,14 +367,6 @@ def recognize_board_noword(image_bytes, board_size=19):
             "time": float
         }
     """
-    if board_size != 19:
-        return {
-            "board": [[0] * board_size for _ in range(board_size)],
-            "confidence": 0,
-            "method": "noword-cnn",
-            "error": "noword CNN currently supports 19x19 boards only"
-        }
-
     t0 = time.time()
 
     try:
@@ -343,8 +388,20 @@ def recognize_board_noword(image_bytes, board_size=19):
             "error": "Model files missing (board.pth and stone.pth required)"
         }
 
-    # Decode the image
-    pil_image = Image.open(io.BytesIO(image_bytes)).convert('RGB')
+    # Decode only within a hard pixel budget, then normalize the detector input
+    # so a 4K/phone screenshot cannot turn into a multi-gigabyte GPU tensor.
+    source_image = Image.open(io.BytesIO(image_bytes))
+    width, height = source_image.size
+    if width < 1 or height < 1 or width * height > MAX_INPUT_PIXELS:
+        raise ValueError(
+            f"Image dimensions are unsupported ({width}x{height}); "
+            f"maximum is {MAX_INPUT_PIXELS:,} pixels"
+        )
+    source_image.thumbnail(
+        (MAX_DETECTION_SIDE, MAX_DETECTION_SIDE),
+        Image.Resampling.LANCZOS,
+    )
+    pil_image = source_image.convert('RGB')
 
     # Step 1: corner detection + perspective correction
     try:
@@ -394,17 +451,21 @@ def recognize_board_noword(image_bytes, board_size=19):
         board.append(row)
 
     elapsed = time.time() - t0
-    avg_conf = sum(scores) / len(scores)
+    # The weakest corner is the limiting factor for perspective correction.
+    # An average could hide one badly detected corner.
+    confidence = min(scores)
 
     # Stats
     black_count = sum(1 for row in board for c in row if c == 1)
     white_count = sum(1 for row in board for c in row if c == 2)
     logger.info(f"noword CNN done: {black_count} black, {white_count} white, "
-                f"confidence {avg_conf:.2f}, {elapsed:.1f}s")
+                f"confidence {confidence:.2f}, {elapsed:.1f}s")
 
     return {
         "board": board,
-        "confidence": round(avg_conf, 3),
+        "boardSize": 19,
+        "initialStones": board_to_initial_stones(board),
+        "confidence": round(confidence, 3),
         "method": "noword-cnn",
         "corners_score": [round(s, 3) for s in scores],
         "time": round(elapsed, 2),
