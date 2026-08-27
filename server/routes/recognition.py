@@ -1,19 +1,21 @@
 """
-recognition.py — board recognition from a photo via the noword CNN model.
+recognition.py — board recognition from a photo via the optional local CNN.
 
 Routes:
   POST /api/recognize   upload an image, return the recognized board
 """
 
 import logging
+import threading
 from urllib.parse import urlsplit
 
 from flask import Blueprint, current_app, request, jsonify
 
-from noword_recognizer import board_to_initial_stones
+from board_position import board_to_initial_stones
 
 logger = logging.getLogger(__name__)
 recognition_bp = Blueprint("recognition", __name__)
+_recognition_slot = threading.BoundedSemaphore(value=1)
 
 
 @recognition_bp.route("/api/recognize", methods=["POST"])
@@ -42,15 +44,31 @@ def api_recognize():
         return jsonify({"error": "Uploaded image is empty"}), 400
 
     if not current_app.extensions["board_recognizer_available"]:
-        return jsonify({"error": "Board recognition model not found"}), 500
+        reason = current_app.extensions.get("board_recognizer_reason") or "unavailable"
+        return jsonify({
+            "error": "Screenshot recognition is not configured",
+            "reason": reason,
+        }), 503
 
-    logger.info("Running noword CNN board recognition")
+    if not _recognition_slot.acquire(blocking=False):
+        response = jsonify({
+            "error": "Screenshot recognition is already running",
+            "reason": "busy",
+        })
+        response.status_code = 409
+        response.headers["Retry-After"] = "1"
+        return response
+
+    logger.info("Running local CNN board recognition")
     recognizer = current_app.extensions["board_recognizer"]
     try:
-        result = recognizer(image_bytes, board_size)
-    except Exception as exc:
-        logger.exception("Board recognition failed")
-        return jsonify({"error": f"Board recognition failed: {exc}"}), 422
+        try:
+            result = recognizer(image_bytes, board_size)
+        except Exception as exc:
+            logger.exception("Board recognition failed")
+            return jsonify({"error": f"Board recognition failed: {exc}"}), 422
+    finally:
+        _recognition_slot.release()
 
     if not isinstance(result, dict):
         logger.error("Board recognizer returned a non-object result")

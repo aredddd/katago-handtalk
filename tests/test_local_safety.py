@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
-import noword_recognizer as recognizer
+import vision_recognizer as recognizer
 from circuit_breaker import CircuitBreaker, State
 from exceptions import EngineQueryError, EngineTimeoutError
 
@@ -51,7 +51,26 @@ def test_query_error_during_half_open_closes_the_responsive_circuit():
 
 def test_recognizer_rejects_unsupported_size_without_allocating():
     with pytest.raises(ValueError, match="19x19"):
-        recognizer.recognize_board_noword(b"not-an-image", 100_000)
+        recognizer.recognize_board_image(b"not-an-image", 100_000)
+
+
+def test_image_pixel_limit_is_checked_before_decoding(monkeypatch):
+    class OversizedImage:
+        size = (10_000, 4_001)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def load(self):
+            raise AssertionError("oversized pixels must not be decoded")
+
+    monkeypatch.setattr(recognizer.Image, "open", lambda *_args: OversizedImage())
+
+    with pytest.raises(ValueError, match="pixel limit"):
+        recognizer._decode_image(b"header-only")
 
 
 def test_large_screenshot_is_downscaled_before_detection(monkeypatch):
@@ -66,17 +85,26 @@ def test_large_screenshot_is_downscaled_before_detection(monkeypatch):
     monkeypatch.setattr(
         recognizer,
         "classify_stones",
-        lambda _model, _image: np.zeros((19, 19), dtype=np.int64),
+        lambda _model, _image: (
+            np.zeros((19, 19), dtype=np.int64),
+            np.ones((19, 19), dtype=np.float32),
+            np.ones((19, 19), dtype=np.float32),
+        ),
     )
 
     source = Image.new("RGB", (4032, 3024), "white")
     encoded = io.BytesIO()
     source.save(encoded, format="JPEG", quality=80)
 
-    result = recognizer.recognize_board_noword(encoded.getvalue(), 19)
+    result = recognizer.recognize_board_image(encoded.getvalue(), 19)
 
     assert max(seen["size"]) == recognizer.MAX_DETECTION_SIDE
     assert result["confidence"] == 0.95
+    assert result["method"] == "local-cnn"
+    assert result["boardSize"] == 19
+    assert result["initialStones"] == []
+    assert len(result["cell_confidence"]) == 19
+    assert len(result["cell_margin"]) == 19
 
 
 def test_recognition_gpu_work_is_single_flight(monkeypatch):
@@ -95,9 +123,9 @@ def test_recognition_gpu_work_is_single_flight(monkeypatch):
             active -= 1
         return {"board": [[0] * 19 for _ in range(19)]}
 
-    monkeypatch.setattr(recognizer, "_recognize_board_noword_locked", fake_locked)
+    monkeypatch.setattr(recognizer, "_recognize_board_image_locked", fake_locked)
     threads = [
-        threading.Thread(target=recognizer.recognize_board_noword, args=(b"x", 19))
+        threading.Thread(target=recognizer.recognize_board_image, args=(b"x", 19))
         for _ in range(2)
     ]
     for thread in threads:
@@ -129,7 +157,7 @@ def test_marker_variants_are_aggregated_before_choosing_stone_colour():
 def test_warm_up_runs_representative_inference_only_once(monkeypatch):
     complete = threading.Event()
     calls = []
-    monkeypatch.setattr(recognizer, "NOWORD_AVAILABLE", True)
+    monkeypatch.setattr(recognizer, "is_available", lambda: True)
     monkeypatch.setattr(recognizer, "_warmup_complete", complete)
     monkeypatch.setattr(recognizer, "_load_models", lambda: ("board", "stone"))
     monkeypatch.setattr(
@@ -153,14 +181,20 @@ def test_wide_image_padding_uses_neutral_background_without_shrinking_content():
     assert expanded.getpixel((0, 0)) == (128, 128, 128)
 
 
+def test_rectified_intersections_are_top_row_first():
+    positions = recognizer.NpBoxPosition()
+
+    top_left = positions[0][0]
+    bottom_right = positions[18][18]
+    assert ((top_left[0] + top_left[2]) / 2,
+            (top_left[1] + top_left[3]) / 2) == pytest.approx((102.0, 102.0))
+    assert ((bottom_right[0] + bottom_right[2]) / 2,
+            (bottom_right[1] + bottom_right[3]) / 2) == pytest.approx((921.0, 921.0))
+
+
 def test_second_pass_must_remain_close_to_rectified_grid():
     box_pos = recognizer.NpBoxPosition(width=recognizer.DEFAULT_IMAGE_SIZE, size=19)
-    expected = np.array([
-        [*box_pos[18][0][:2], 0, 0],
-        [*box_pos[18][18][:2], 0, 0],
-        [*box_pos[0][0][:2], 0, 0],
-        [*box_pos[0][18][:2], 0, 0],
-    ], dtype=np.float32)
+    expected = recognizer._expected_rectified_corners()
 
     assert recognizer._second_pass_geometry_is_plausible(expected)
     expected[0, 0] += box_pos.grid_size * 2
@@ -170,13 +204,7 @@ def test_second_pass_must_remain_close_to_rectified_grid():
 def test_second_pass_never_overwrites_source_confidence(monkeypatch):
     monkeypatch.setattr(recognizer, "_load_models", lambda: (object(), object()))
     corrected = Image.new("RGB", (1024, 1024), "white")
-    box_pos = recognizer.NpBoxPosition(width=recognizer.DEFAULT_IMAGE_SIZE, size=19)
-    plausible_boxes = np.array([
-        [*box_pos[18][0][:2], 0, 0],
-        [*box_pos[18][18][:2], 0, 0],
-        [*box_pos[0][0][:2], 0, 0],
-        [*box_pos[0][18][:2], 0, 0],
-    ], dtype=np.float32)
+    plausible_boxes = recognizer._expected_rectified_corners()
     passes = iter([
         (corrected, plausible_boxes, [0.50, 0.60, 0.70, 0.80]),
         (corrected, plausible_boxes, [0.95, 0.95, 0.95, 0.95]),
@@ -198,9 +226,10 @@ def test_second_pass_never_overwrites_source_confidence(monkeypatch):
     encoded = io.BytesIO()
     Image.new("RGB", (1200, 800), "white").save(encoded, format="PNG")
 
-    result = recognizer.recognize_board_noword(encoded.getvalue(), 19)
+    result = recognizer.recognize_board_image(encoded.getvalue(), 19)
 
     assert result["source_confidence"] == 0.50
     assert result["confidence"] == 0.50
     assert result["rectified_confidence"] == 0.95
     assert result["corners_score"] == [0.50, 0.60, 0.70, 0.80]
+    assert result["rectified_corners_score"] == [0.95, 0.95, 0.95, 0.95]

@@ -1,0 +1,32 @@
+* text=auto eol=lf
+
+*.ps1 text eol=lf
+*.cmd text eol=crlf
+*.bat text eol=crlf
+*.sh text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.json text eol=lf
+*.py text eol=lf
+*.js text eol=lf
+*.mjs text eol=lf
+*.css text eol=lf
+*.html text eol=lf
+*.md text eol=lf
+*.txt text eol=lf
+*.ini text eol=lf
+*.cfg text eol=lf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.ico binary
+*.wav binary
+*.zip binary
+*.gz binary
+*.pth binary
+*.exe binary
+*.dll binary
+
+# Preserve the audited upstream WebView2 license byte-for-byte.
+third_party/WebView2-LICENSE.txt whitespace=-trailing-space

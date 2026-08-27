@@ -1,0 +1,151 @@
+name: Windows release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  test-build-release:
+    runs-on: windows-2025
+    timeout-minutes: 45
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+
+    steps:
+      - name: Check out the tagged source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Set up Python 3.11 for tests
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.11.16"
+
+      - name: Set up Node.js 24 for frontend tests
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: "24"
+
+      - name: Verify the tag matches VERSION
+        shell: pwsh
+        run: |
+          $version = (Get-Content -LiteralPath VERSION -Raw).Trim()
+          $expectedTag = "v$version"
+          if ($env:GITHUB_REF_NAME -ne $expectedTag) {
+            throw "Tag $env:GITHUB_REF_NAME does not match VERSION ($expectedTag)."
+          }
+
+      - name: Install Python test dependencies
+        shell: pwsh
+        run: python -m pip install --disable-pip-version-check --require-hashes -r requirements-dev.lock.txt
+
+      - name: Run Python tests
+        shell: pwsh
+        run: python -m pytest -q
+
+      - name: Verify CPU and CUDA vision locks
+        shell: pwsh
+        run: |
+          python -m uv pip install --dry-run --reinstall `
+            --python (Get-Command python).Source `
+            --require-hashes `
+            --requirement requirements-torch-cpu.lock.txt `
+            --torch-backend cpu
+          if ($LASTEXITCODE -ne 0) { throw "CPU vision lock verification failed." }
+          python -m uv pip install --dry-run --reinstall `
+            --python (Get-Command python).Source `
+            --require-hashes `
+            --requirement requirements-torch-cuda.lock.txt `
+            --torch-backend cu128
+          if ($LASTEXITCODE -ne 0) { throw "CUDA vision lock verification failed." }
+
+      - name: Run frontend tests
+        shell: pwsh
+        run: |
+          node --test `
+            tests/frontend_contract.test.mjs `
+            tests/frontend_desktop_contract.test.mjs `
+            tests/goboard_state.test.mjs `
+            tests/live_review_state.test.mjs
+
+      - name: Build and verify the Windows release package
+        shell: pwsh
+        run: .\desktop\package-release.ps1
+
+      - name: Verify release outputs and checksums
+        shell: pwsh
+        run: |
+          $version = (Get-Content -LiteralPath VERSION -Raw).Trim()
+          $releaseRoot = Join-Path $PWD "desktop-dist\release"
+          $archive = Join-Path $releaseRoot "KataGo-HandTalk-$version-windows-x64.zip"
+          $manifest = Join-Path $releaseRoot "KataGo-HandTalk-$version-file-manifest.json"
+          $checksums = Join-Path $releaseRoot "SHA256SUMS"
+          foreach ($path in @($archive, $manifest, $checksums)) {
+            if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+              throw "Missing release output: $path"
+            }
+          }
+          foreach ($line in Get-Content -LiteralPath $checksums) {
+            if ($line -notmatch '^(?<hash>[0-9a-f]{64})  (?<name>[^\\/]+)$') {
+              throw "Malformed SHA256SUMS entry: $line"
+            }
+            $path = Join-Path $releaseRoot $Matches.name
+            $actual = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($actual -ne $Matches.hash) {
+              throw "Checksum mismatch for $($Matches.name)"
+            }
+          }
+
+      - name: Attest the release archive and manifest
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        with:
+          subject-path: |
+            desktop-dist/release/*.zip
+            desktop-dist/release/*-file-manifest.json
+
+      - name: Create or update the GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $version = (Get-Content -LiteralPath VERSION -Raw).Trim()
+          $tag = $env:GITHUB_REF_NAME
+          $releaseRoot = Join-Path $PWD "desktop-dist\release"
+          $releaseKindArgs = if ($version.Contains("-")) {
+            @("--prerelease=true", "--latest=false", "--draft=false")
+          } else {
+            @("--prerelease=false", "--latest=true", "--draft=false")
+          }
+          $assets = @(
+            (Join-Path $releaseRoot "KataGo-HandTalk-$version-windows-x64.zip"),
+            (Join-Path $releaseRoot "KataGo-HandTalk-$version-file-manifest.json"),
+            (Join-Path $releaseRoot "SHA256SUMS")
+          )
+
+          & gh release view $tag *> $null
+          if ($LASTEXITCODE -eq 0) {
+            & gh release upload $tag @assets --clobber
+            if ($LASTEXITCODE -ne 0) { throw "Could not replace release assets." }
+            & gh release edit $tag `
+              --title "KataGo HandTalk $version" `
+              --notes-file CHANGELOG.md `
+              @releaseKindArgs
+            if ($LASTEXITCODE -ne 0) { throw "Could not update the GitHub release." }
+          } else {
+            & gh release create $tag @assets `
+              --verify-tag `
+              --target $env:GITHUB_SHA `
+              --title "KataGo HandTalk $version" `
+              --notes-file CHANGELOG.md `
+              @releaseKindArgs
+            if ($LASTEXITCODE -ne 0) { throw "Could not create the GitHub release." }
+          }

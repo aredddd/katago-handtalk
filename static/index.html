@@ -32,14 +32,15 @@
                     </svg>
                     <span id="topmost-label">置顶</span>
                 </button>
-                <button id="btn-lang" class="icon-button" type="button" title="切换语言" aria-label="切换中文或英文">中 / EN</button>
+                <button id="btn-lang" class="icon-button" type="button" title="切换语言" aria-label="切换中文或英文" hidden>中 / EN</button>
             </div>
         </header>
 
         <main id="main-content">
             <section id="board-area" aria-label="围棋棋盘">
                 <div id="board-container">
-                    <canvas id="goboard" aria-label="围棋棋盘；点击交叉点落子"></canvas>
+                    <canvas id="goboard" tabindex="0" role="application"
+                            aria-label="围棋棋盘；可点击落子，也可用方向键选择交叉点并按回车落子"></canvas>
                     <div id="game-message" class="game-message" role="status" aria-live="polite" hidden></div>
                 </div>
 
@@ -76,15 +77,15 @@
                         </div>
                     </div>
                     <div class="mode-buttons" role="group" aria-label="对局模式">
-                        <button class="mode-btn active" type="button" data-mode="free-play">
+                        <button class="mode-btn active" type="button" data-mode="free-play" aria-pressed="true">
                             <span class="mode-symbol free" aria-hidden="true">↗</span>
                             <span><b class="i18n" data-key="freePlay">自由推演</b><small>双方都由你落子</small></span>
                         </button>
-                        <button class="mode-btn" type="button" data-mode="play-black">
+                        <button class="mode-btn" type="button" data-mode="play-black" aria-pressed="false">
                             <span class="mode-symbol stone black" aria-hidden="true"></span>
                             <span><b class="i18n" data-key="playBlack">执黑对弈</b><small>你执黑，AI 执白</small></span>
                         </button>
-                        <button class="mode-btn" type="button" data-mode="play-white">
+                        <button class="mode-btn" type="button" data-mode="play-white" aria-pressed="false">
                             <span class="mode-symbol stone white" aria-hidden="true"></span>
                             <span><b class="i18n" data-key="playWhite">执白对弈</b><small>AI 执黑，你执白</small></span>
                         </button>
@@ -127,10 +128,18 @@
                             <span id="analysis-toggle-icon" class="button-icon sparkle" aria-hidden="true">Ⅱ</span>
                             <span><b id="analysis-toggle-label">关闭分析</b><small id="analysis-toggle-hint">停止推荐与候选点</small></span>
                         </button>
-                        <button id="btn-position" type="button">
+                        <button id="btn-position" type="button" aria-pressed="false">
                             <span class="button-icon" aria-hidden="true">◐</span>
                             <span><b>形势判断</b><small>查看胜率与目差</small></span>
                         </button>
+                    </div>
+                    <div id="ai-recovery" class="ai-recovery" role="alert" hidden>
+                        <strong>AI 没有成功落子</strong>
+                        <span id="ai-recovery-detail">可以重试，或切回自由推演。</span>
+                        <div>
+                            <button id="btn-retry-ai" class="btn-primary" type="button">重试 AI</button>
+                            <button id="btn-free-after-error" type="button">改为自由推演</button>
+                        </div>
                     </div>
                 </section>
 
@@ -189,7 +198,8 @@
                 </section>
 
                 <section class="panel-section collapsible settings-card" id="settings-section">
-                    <button class="section-toggle" type="button" data-target="settings-body" aria-label="展开或收起基础设置">
+                    <button class="section-toggle" type="button" data-target="settings-body"
+                            aria-label="展开或收起基础设置" aria-expanded="true" aria-controls="settings-body">
                         <span><span aria-hidden="true">⌁</span> 基础设置</span>
                         <span class="toggle-icon" aria-hidden="true">▾</span>
                     </button>
@@ -212,6 +222,9 @@
                             </select>
                         </div>
                         <p class="settings-note">均衡模式适合边下边看，深入模式更准但会多等一会儿。</p>
+                        <button id="btn-runtime-config" class="settings-link desktop-only" type="button">
+                            重新配置 KataGo / 截图识别
+                        </button>
                     </div>
                 </section>
 
@@ -227,6 +240,8 @@
             </aside>
         </main>
 
+        <div id="app-toast" class="app-toast" role="status" aria-live="polite" hidden></div>
+
         <div id="recognize-modal" class="modal-overlay" style="display:none" role="dialog" aria-modal="true" aria-labelledby="recognize-title">
             <div class="modal-content recognize-modal-content">
                 <div class="modal-header">
@@ -237,16 +252,20 @@
                     <button id="modal-close" class="modal-close-btn" type="button" aria-label="关闭">×</button>
                 </div>
                 <div class="modal-body">
-                    <div id="recognize-loading" style="display:none">
-                        <span class="recognize-spinner" aria-hidden="true"></span>
-                        <h3>正在识别棋盘</h3>
-                        <p class="i18n" data-key="recognizing">第一次识别可能需要几秒钟…</p>
-                    </div>
+                        <div id="recognize-loading" style="display:none">
+                            <span class="recognize-spinner" aria-hidden="true"></span>
+                            <h3>正在识别棋盘</h3>
+                            <p class="i18n" data-key="recognizing">第一次识别可能需要几秒钟…</p>
+                            <p id="recognize-error" class="recognize-error" role="alert"></p>
+                            <button id="btn-recognize-cancel" type="button">取消识别</button>
+                        </div>
 
                     <div id="recognize-result" style="display:none">
                         <div class="recognize-preview-row">
                             <div class="recognize-preview-col">
-                                <canvas id="recognize-board-canvas" width="420" height="420" aria-label="识别结果；点击交叉点校正棋子"></canvas>
+                                <canvas id="recognize-board-canvas" width="420" height="420"
+                                        tabindex="0" role="application"
+                                        aria-label="识别结果；可点击校正，也可用方向键选择交叉点并按回车切换棋子"></canvas>
                             </div>
                             <aside class="recognize-guide">
                                 <figure class="recognize-source-figure">

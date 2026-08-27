@@ -42,7 +42,15 @@ MODEL_PATH: str = _resolve(
          r"C:\katago\kata1-b18c384nbt-s9996604416-d4316597426.bin.gz")
 )
 CONFIG_PATH: str = _resolve(_get("katago", "config_path", "KATAGO_CONFIG",
-                                 os.path.join("config", "default_gtp.cfg")))
+                                 os.path.join("config", "default_analysis.cfg")))
+KATAGO_WORK_DIR: str = _resolve(
+    _get(
+        "katago",
+        "work_dir",
+        "KATAGO_WORK_DIR",
+        os.path.join(".runtime", "katago-work"),
+    )
+)
 # Per-query response timeout (seconds).
 KATAGO_MAX_WAIT: int = int(_get("katago", "max_wait", "KATAGO_MAX_WAIT", "300"))
 
@@ -57,3 +65,16 @@ DEFAULT_LANGUAGE: str = _get("i18n", "default_language", "DEFAULT_LANGUAGE", "en
 AVAILABLE_LANGUAGES: list = [
     s.strip() for s in _get("i18n", "available_languages", None, "en, zh").split(",") if s.strip()
 ]
+
+# A random value supplied only to a desktop-launched server. The desktop shell
+# verifies this value before embedding the local page, so an unrelated process
+# listening on localhost cannot be mistaken for this application.
+DESKTOP_SESSION_TOKEN: str = _get(
+    "desktop", "session_token", "KATAGO_HANDTALK_SESSION_TOKEN", ""
+)
+
+try:
+    with open(os.path.join(_ROOT, "VERSION"), encoding="utf-8") as _version_file:
+        APP_VERSION: str = _version_file.read().strip()
+except OSError:
+    APP_VERSION = "0.0.0-dev"

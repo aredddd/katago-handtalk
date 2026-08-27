@@ -10,7 +10,14 @@ Routes:
 
 from flask import Blueprint, current_app, send_from_directory, jsonify
 
-from config import KATAGO_PATH, MODEL_PATH, DEFAULT_LANGUAGE, AVAILABLE_LANGUAGES
+from config import (
+    APP_VERSION,
+    AVAILABLE_LANGUAGES,
+    DEFAULT_LANGUAGE,
+    DESKTOP_SESSION_TOKEN,
+    KATAGO_PATH,
+    MODEL_PATH,
+)
 
 pages_bp = Blueprint("pages", __name__)
 
@@ -31,6 +38,8 @@ def api_status():
         # an existing loopback service can be reused safely.
         "app":             "katago-web-beginner",
         "api_version":     1,
+        "version":         APP_VERSION,
+        "session_token":   DESKTOP_SESSION_TOKEN,
         "running":         _service().is_ready(),
         "katago_path":     KATAGO_PATH,
         "model_path":      MODEL_PATH,
@@ -47,7 +56,32 @@ def api_circuit_status():
 @pages_bp.route("/api/config")
 def api_config():
     """Client-facing configuration (default UI language, available languages)."""
+    recognition_available = bool(
+        current_app.extensions.get("board_recognizer_available")
+    )
+    recognition_reason = current_app.extensions.get("board_recognizer_reason")
+    desktop = bool(DESKTOP_SESSION_TOKEN)
     return jsonify({
+        "version":             APP_VERSION,
         "default_language":    DEFAULT_LANGUAGE,
         "available_languages": AVAILABLE_LANGUAGES,
+        "capabilities": {
+            "engine": {
+                "available": _service().is_ready(),
+            },
+            "recognition": {
+                "enabled": recognition_available,
+                "available": recognition_available,
+                "reason": recognition_reason,
+                "configurable": desktop,
+            },
+            "desktop": {
+                "bridge": desktop,
+                "snipping": desktop,
+                "topmost": desktop,
+            },
+            "live_review": {
+                "available": recognition_available,
+            },
+        },
     })

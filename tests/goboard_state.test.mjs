@@ -5,7 +5,13 @@ import vm from "node:vm";
 
 const source = readFileSync(new URL("../static/js/goboard.js", import.meta.url), "utf8");
 
-function makeBoard() {
+function makeBoard({
+  containerWidth = 700,
+  containerHeight = 700,
+  viewportWidth = 1280,
+  viewportHeight = 900,
+  devicePixelRatio = 1,
+} = {}) {
   const gradient = { addColorStop() {} };
   const context2d = new Proxy({}, {
     get(target, key) {
@@ -21,13 +27,28 @@ function makeBoard() {
       return true;
     },
   });
+  const listeners = new Map();
+  const attributes = new Map([["aria-label", "Go board"]]);
   const canvas = {
     width: 700,
     height: 700,
     style: {},
-    parentElement: { clientWidth: 700 },
+    parentElement: {
+      clientWidth: containerWidth,
+      clientHeight: containerHeight,
+      getBoundingClientRect: () => ({ width: containerWidth, height: containerHeight }),
+    },
     getContext: () => context2d,
-    addEventListener() {},
+    addEventListener(type, handler) {
+      const handlers = listeners.get(type) || [];
+      handlers.push(handler);
+      listeners.set(type, handlers);
+    },
+    dispatchEvent(event) {
+      for (const handler of listeners.get(event.type) || []) handler(event);
+    },
+    getAttribute(name) { return attributes.get(name) ?? null; },
+    setAttribute(name, value) { attributes.set(name, String(value)); },
     getBoundingClientRect: () => ({ left: 0, top: 0, width: 700, height: 700 }),
   };
   const elements = {
@@ -39,9 +60,9 @@ function makeBoard() {
     console,
     document: { getElementById: (id) => elements[id] || null },
     window: {
-      innerWidth: 1280,
-      innerHeight: 900,
-      devicePixelRatio: 1,
+      innerWidth: viewportWidth,
+      innerHeight: viewportHeight,
+      devicePixelRatio,
       addEventListener() {},
     },
     Audio: class {
@@ -55,6 +76,68 @@ function makeBoard() {
   const GoBoard = vm.runInContext("GoBoard", sandbox);
   return new GoBoard("goboard", 19);
 }
+
+test("canvas stays square and uses the smaller measured container dimension", () => {
+  const board = makeBoard({
+    containerWidth: 620,
+    containerHeight: 480,
+    devicePixelRatio: 2,
+  });
+
+  assert.equal(board.canvas.style.width, "480px");
+  assert.equal(board.canvas.style.height, "480px");
+  assert.equal(board.canvas.width, 960);
+  assert.equal(board.canvas.height, 960);
+});
+
+test("scheduled resizing follows the container and shares the 840px breakpoint", () => {
+  const board = makeBoard({ containerWidth: 460, containerHeight: 460, viewportWidth: 840 });
+  assert.equal(board.isMobile, true);
+
+  board.canvas.parentElement.clientWidth = 431;
+  board.canvas.parentElement.clientHeight = 520;
+  board._scheduleResize();
+
+  assert.equal(board.canvas.style.width, "431px");
+  assert.equal(board.canvas.style.height, "431px");
+});
+
+test("keyboard focus can select an intersection and place a move", () => {
+  const board = makeBoard();
+  const moves = [];
+  board.onMove((x, y) => moves.push([x, y]));
+  const event = (type, key = "") => ({
+    type, key, altKey: false, ctrlKey: false, metaKey: false,
+    preventDefault() {},
+  });
+
+  board.canvas.dispatchEvent(event("focus"));
+  assert.deepEqual({ ...board.keyboardPos }, { x: 9, y: 9 });
+  board.canvas.dispatchEvent(event("keydown", "ArrowRight"));
+  assert.deepEqual({ ...board.keyboardPos }, { x: 10, y: 9 });
+  board.canvas.dispatchEvent(event("keydown", "Enter"));
+  assert.deepEqual(moves, [[10, 9]]);
+  assert.match(board.canvas.getAttribute("aria-label"), /L10/);
+});
+
+test("pointer movement cannot make Enter place an invisible keyboard move", () => {
+  const board = makeBoard();
+  const moves = [];
+  board.onMove((x, y) => moves.push([x, y]));
+  const keyEvent = (key) => ({
+    type: "keydown", key, altKey: false, ctrlKey: false, metaKey: false,
+    preventDefault() {},
+  });
+
+  board.canvas.dispatchEvent({ type: "focus" });
+  board.canvas.dispatchEvent({ type: "mousemove", clientX: 100, clientY: 100 });
+  assert.equal(board.keyboardPos, null);
+  board.canvas.dispatchEvent(keyEvent("Enter"));
+  assert.deepEqual(moves, []);
+  assert.deepEqual({ ...board.keyboardPos }, { x: 9, y: 9 });
+  board.canvas.dispatchEvent(keyEvent("Enter"));
+  assert.deepEqual(moves, [[9, 9]]);
+});
 
 test("undo preserves an imported middle-game root and its next player", () => {
   const board = makeBoard();

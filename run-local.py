@@ -33,7 +33,6 @@ from app_factory import create_app  # noqa: E402
 from config import KATAGO_PATH, MODEL_PATH, PORT  # noqa: E402
 from engine_lifecycle import monitor_engine, start_engine  # noqa: E402
 from events import Events  # noqa: E402
-from noword_recognizer import NOWORD_AVAILABLE, warm_up_recognizer  # noqa: E402
 
 
 def _open_browser_when_ready(url: str) -> None:
@@ -53,6 +52,8 @@ def main() -> int:
     url = f"http://{HOST}:{PORT}"
     app, socketio = create_app()
     engine = app.extensions["engine"]
+    vision_available = bool(app.extensions.get("board_recognizer_available"))
+    vision_warmup = app.extensions.get("board_recognizer_warmup")
 
     print("=" * 62)
     print("  KataGo Web · 新手本地版")
@@ -60,7 +61,7 @@ def main() -> int:
     print(f"  地址   : {url}（仅本机可访问）")
     print(f"  KataGo : {KATAGO_PATH}")
     print(f"  模型   : {MODEL_PATH}")
-    print(f"  截图识别: {'可用' if NOWORD_AVAILABLE else '模型缺失'}")
+    print(f"  截图识别: {'可用' if vision_available else '未启用（不影响对局）'}")
     print("  退出   : 在此窗口按 Ctrl+C")
     print("=" * 62, flush=True)
 
@@ -68,9 +69,9 @@ def main() -> int:
     # normal recognition.  Start it immediately and overlap that work with the
     # KataGo process startup, so screenshot import is warm by the time the user
     # reaches it.  The daemon is best-effort and never blocks app startup.
-    if NOWORD_AVAILABLE:
+    if vision_available and callable(vision_warmup):
         threading.Thread(
-            target=warm_up_recognizer,
+            target=vision_warmup,
             daemon=True,
             name="recognizer-warmup",
         ).start()

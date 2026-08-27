@@ -1,118 +1,215 @@
 [CmdletBinding()]
 param(
+    [string]$RuntimeRoot,
+    [string]$VenvRoot,
+    [ValidateSet("None", "Auto", "CUDA", "CPU")]
+    [string]$VisionBackend = "Auto",
     [switch]$CpuVision
 )
 
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 $ProjectRoot = $PSScriptRoot
-$RuntimeRoot = Join-Path $ProjectRoot ".runtime"
+
+if ([string]::IsNullOrWhiteSpace($RuntimeRoot)) {
+    $RuntimeRoot = Join-Path $ProjectRoot ".runtime"
+}
+if ([string]::IsNullOrWhiteSpace($VenvRoot)) {
+    $VenvRoot = Join-Path $ProjectRoot ".venv"
+}
+$RuntimeRoot = [IO.Path]::GetFullPath($RuntimeRoot)
+$VenvRoot = [IO.Path]::GetFullPath($VenvRoot)
+if ($CpuVision) { $VisionBackend = "CPU" }
+
+$UvVersion = "0.12.6"
+$UvSha256 = "DF7CB9F243EAE1621400D4FCF5B1B3D90F20E264ECE91B64DEB3B0078ABCA6EF"
+$PythonVersion = "3.11.16"
 $UvRoot = Join-Path $RuntimeRoot "uv"
 $UvExe = Join-Path $UvRoot "uv.exe"
-$UvArchive = Join-Path $RuntimeRoot "uv.zip"
-$PythonExe = Join-Path $ProjectRoot ".venv\Scripts\python.exe"
-
-$KataGoRoot = [IO.Path]::GetFullPath((Join-Path $ProjectRoot "..\KataGo"))
-$KataGoExe = Join-Path $KataGoRoot "katago.exe"
-$KataGoModel = Join-Path $KataGoRoot "models\kata1-tf2-b10c384-s2941M-d5872M.bin.gz"
-$AnalysisConfig = [IO.Path]::GetFullPath((Join-Path $ProjectRoot "..\KaTrain\analysis_5060.cfg"))
-$VisionModelRoot = Join-Path $ProjectRoot "models\image2sgf"
-$BoardVisionModel = Join-Path $VisionModelRoot "board.pth"
-$StoneVisionModel = Join-Path $VisionModelRoot "stone.pth"
+$UvArchive = Join-Path $RuntimeRoot "uv-$UvVersion.zip"
+$PythonExe = Join-Path $VenvRoot "Scripts\python.exe"
+$CoreRequirementsInput = Join-Path $ProjectRoot "requirements.txt"
+$CoreRequirements = Join-Path $ProjectRoot "requirements.lock.txt"
+$VisionRequirementsInput = Join-Path $ProjectRoot "requirements-vision.txt"
+$VisionRequirements = Join-Path $ProjectRoot "requirements-vision.lock.txt"
+$TorchRequirementsInput = Join-Path $ProjectRoot "requirements-torch.txt"
+$TorchCpuRequirements = Join-Path $ProjectRoot "requirements-torch-cpu.lock.txt"
+$TorchCudaRequirements = Join-Path $ProjectRoot "requirements-torch-cuda.lock.txt"
 
 Write-Host ""
-Write-Host "KataGo Web - portable local runtime" -ForegroundColor Cyan
-Write-Host "Project: $ProjectRoot"
+Write-Host "KataGo HandTalk - local runtime" -ForegroundColor Cyan
+Write-Host "Application : $ProjectRoot"
+Write-Host "Runtime     : $RuntimeRoot"
+Write-Host "Environment : $VenvRoot"
+Write-Host "Vision      : $VisionBackend"
 
-foreach ($RequiredPath in @($KataGoExe, $KataGoModel, $AnalysisConfig)) {
+foreach ($RequiredPath in @(
+    $CoreRequirementsInput,
+    $CoreRequirements,
+    $VisionRequirementsInput,
+    $VisionRequirements,
+    $TorchRequirementsInput,
+    $TorchCpuRequirements,
+    $TorchCudaRequirements
+)) {
     if (-not (Test-Path -LiteralPath $RequiredPath -PathType Leaf)) {
-        throw "Required file not found: $RequiredPath"
+        throw "Required setup file not found: $RequiredPath"
     }
-}
-
-$MissingVisionModels = @($BoardVisionModel, $StoneVisionModel) |
-    Where-Object { -not (Test-Path -LiteralPath $_ -PathType Leaf) }
-if ($MissingVisionModels.Count -gt 0) {
-    $MissingList = $MissingVisionModels -join "`n  - "
-    throw @"
-Screenshot recognition model missing:
-  - $MissingList
-Download board.pth and stone.pth from the upstream image2sgf release and place
-them in: $VisionModelRoot
-https://github.com/noword/image2sgf/releases
-"@
 }
 
 New-Item -ItemType Directory -Force -Path $RuntimeRoot, $UvRoot | Out-Null
 
-if (-not (Test-Path -LiteralPath $UvExe -PathType Leaf)) {
-    Write-Host "[1/5] Downloading the portable uv runtime manager..." -ForegroundColor Yellow
-    $UvUrl = "https://github.com/astral-sh/uv/releases/latest/download/uv-x86_64-pc-windows-msvc.zip"
-    Invoke-WebRequest -Uri $UvUrl -OutFile $UvArchive -UseBasicParsing
-    Expand-Archive -LiteralPath $UvArchive -DestinationPath $UvRoot -Force
-    Remove-Item -LiteralPath $UvArchive -Force
+$UvReady = $false
+if (Test-Path -LiteralPath $UvExe -PathType Leaf) {
+    try {
+        $ActualUvVersion = (& $UvExe --version).Trim()
+        $UvReady = $LASTEXITCODE -eq 0 -and $ActualUvVersion -match "^uv\s+$([regex]::Escape($UvVersion))(?:\s|$)"
+    } catch {
+        $UvReady = $false
+    }
+}
+if (-not $UvReady) {
+    Write-Host "[1/5] Downloading verified uv $UvVersion..." -ForegroundColor Yellow
+    if (Test-Path -LiteralPath $UvExe -PathType Leaf) {
+        Remove-Item -LiteralPath $UvExe -Force
+    }
+    $UvUrl = "https://github.com/astral-sh/uv/releases/download/$UvVersion/uv-x86_64-pc-windows-msvc.zip"
+    try {
+        Invoke-WebRequest -Uri $UvUrl -OutFile $UvArchive -UseBasicParsing
+        $ActualHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $UvArchive).Hash
+        if ($ActualHash -ne $UvSha256) {
+            throw "uv archive checksum mismatch. Expected $UvSha256, got $ActualHash."
+        }
+        Expand-Archive -LiteralPath $UvArchive -DestinationPath $UvRoot -Force
+    } finally {
+        if (Test-Path -LiteralPath $UvArchive -PathType Leaf) {
+            Remove-Item -LiteralPath $UvArchive -Force
+        }
+    }
+    $ActualUvVersion = (& $UvExe --version).Trim()
+    if ($LASTEXITCODE -ne 0 -or $ActualUvVersion -notmatch "^uv\s+$([regex]::Escape($UvVersion))(?:\s|$)") {
+        throw "Pinned uv extraction produced an unexpected version: $ActualUvVersion"
+    }
 } else {
-    Write-Host "[1/5] uv is ready." -ForegroundColor Green
+    Write-Host "[1/5] uv $UvVersion is ready." -ForegroundColor Green
 }
 
 $env:UV_PYTHON_INSTALL_DIR = Join-Path $RuntimeRoot "python"
 $env:UV_CACHE_DIR = Join-Path $RuntimeRoot "cache"
 $env:UV_PYTHON_PREFERENCE = "only-managed"
+$env:PYTHONUTF8 = "1"
 
-Write-Host "[2/5] Preparing project-local Python 3.11..." -ForegroundColor Yellow
-& $UvExe python install 3.11 --no-bin --no-registry
-if ($LASTEXITCODE -ne 0) { throw "Python 3.11 installation failed." }
-
-if (-not (Test-Path -LiteralPath $PythonExe -PathType Leaf)) {
-    & $UvExe venv (Join-Path $ProjectRoot ".venv") --python 3.11
+Write-Host "[2/5] Preparing isolated Python $PythonVersion..." -ForegroundColor Yellow
+& $UvExe python install $PythonVersion --no-bin --no-registry
+if ($LASTEXITCODE -ne 0) { throw "Portable Python $PythonVersion installation failed." }
+$VenvReady = $false
+if (Test-Path -LiteralPath $PythonExe -PathType Leaf) {
+    try {
+        $ActualPythonVersion = (& $PythonExe -c "import platform; print(platform.python_version())").Trim()
+        $VenvReady = $LASTEXITCODE -eq 0 -and $ActualPythonVersion -eq $PythonVersion
+    } catch {
+        $VenvReady = $false
+    }
+}
+if (-not $VenvReady) {
+    $VenvArguments = @($VenvRoot, "--python", $PythonVersion)
+    if (Test-Path -LiteralPath $VenvRoot) {
+        # uv refuses to clear a non-virtual-environment directory unless
+        # --force is supplied. Never supply it for a user-configurable path.
+        $VenvArguments += "--clear"
+    }
+    & $UvExe venv @VenvArguments
     if ($LASTEXITCODE -ne 0) { throw "Virtual environment creation failed." }
 }
+$ActualPythonVersion = (& $PythonExe -c "import platform; print(platform.python_version())").Trim()
+if ($LASTEXITCODE -ne 0 -or $ActualPythonVersion -ne $PythonVersion) {
+    throw "Virtual environment Python must be $PythonVersion, got: $ActualPythonVersion"
+}
 
-Write-Host "[3/5] Installing Web and screenshot recognition dependencies..." -ForegroundColor Yellow
-if ($CpuVision) {
-    $TorchIndex = "https://download.pytorch.org/whl/cpu"
-    $ExpectedTorchFlavor = "cpu"
+Write-Host "[3/5] Installing the core web runtime..." -ForegroundColor Yellow
+& $UvExe pip install --python $PythonExe --require-hashes --requirement $CoreRequirements
+if ($LASTEXITCODE -ne 0) { throw "Core dependency installation failed." }
+
+$ResolvedVision = $VisionBackend
+if ($ResolvedVision -eq "Auto") {
+    $ResolvedVision = if (Get-Command nvidia-smi.exe -ErrorAction SilentlyContinue) { "CUDA" } else { "CPU" }
+}
+if ($ResolvedVision -ne "None") {
+    Write-Host "[4/5] Installing optional screenshot recognition ($ResolvedVision)..." -ForegroundColor Yellow
+    $TorchRequirements = if ($ResolvedVision -eq "CUDA") {
+        $TorchCudaRequirements
+    } else {
+        $TorchCpuRequirements
+    }
+    $TorchBackend = if ($ResolvedVision -eq "CUDA") { "cu128" } else { "cpu" }
+    # The lock pins local-version wheels (+cpu or +cu128). Pass the same uv
+    # backend during installation so those hashes are resolved from the
+    # matching PyTorch index, then force replacement when users switch flavor.
+    & $UvExe pip install --python $PythonExe --require-hashes --requirement $TorchRequirements `
+        --torch-backend $TorchBackend `
+        --reinstall-package torch --reinstall-package torchvision
+    if ($LASTEXITCODE -ne 0) { throw "PyTorch installation failed." }
+    & $UvExe pip install --python $PythonExe --require-hashes --requirement $VisionRequirements
+    if ($LASTEXITCODE -ne 0) { throw "Vision dependency installation failed." }
 } else {
-    $TorchIndex = "https://download.pytorch.org/whl/cu128"
-    $ExpectedTorchFlavor = "12.8"
-}
-& $UvExe pip install --python $PythonExe torch torchvision --index-url $TorchIndex
-if ($LASTEXITCODE -ne 0) { throw "PyTorch installation failed." }
-
-# uv correctly treats an installed same-version wheel as satisfied even when
-# switching CPU/CUDA indexes. Detect that case and explicitly replace the wheel.
-$InstalledTorchFlavor = (& $PythonExe -c "import torch; print(torch.version.cuda or 'cpu')").Trim()
-if ($InstalledTorchFlavor -ne $ExpectedTorchFlavor) {
-    Write-Host "Switching PyTorch runtime ($InstalledTorchFlavor -> $ExpectedTorchFlavor)..." -ForegroundColor Yellow
-    & $UvExe pip install --python $PythonExe --reinstall torch torchvision --index-url $TorchIndex
-    if ($LASTEXITCODE -ne 0) { throw "PyTorch runtime switch failed." }
+    Write-Host "[4/5] Screenshot recognition is disabled; skipping large AI vision packages." -ForegroundColor DarkGray
 }
 
-& $UvExe pip install --python $PythonExe -r (Join-Path $ProjectRoot "requirements.txt")
-if ($LASTEXITCODE -ne 0) { throw "Python dependency installation failed." }
-
-Write-Host "[4/5] Verifying imports and RTX acceleration..." -ForegroundColor Yellow
+Write-Host "[5/5] Verifying the runtime..." -ForegroundColor Yellow
 $VerifyCode = @'
+from importlib.metadata import version
+import flask, flask_socketio, simple_websocket
+expected = {
+    "flask": "3.1.3",
+    "flask-socketio": "5.6.1",
+    "simple-websocket": "1.1.0",
+}
+for package, wanted in expected.items():
+    installed = version(package)
+    if installed != wanted:
+        raise SystemExit(f"{package}: expected {wanted}, got {installed}")
+print("Core runtime: OK")
+'@
+$VerifyCode | & $PythonExe -
+if ($LASTEXITCODE -ne 0) { throw "Core runtime verification failed." }
+
+if ($ResolvedVision -ne "None") {
+    $VisionVerify = @'
 import os
-import cv2, flask, flask_socketio, simple_websocket
-import torch, torchvision
-print(f"Python import: OK")
+import cv2, numpy, PIL, torch, torchvision
+backend = os.environ.get("KATAGO_HANDTALK_VISION_BACKEND", "CPU")
+suffix = "+cu128" if backend == "CUDA" else "+cpu"
+expected = {
+    "cv2": "5.0.0",
+    "numpy": "2.4.6",
+    "PIL": "12.3.0",
+    "torch": "2.11.0" + suffix,
+    "torchvision": "0.26.0" + suffix,
+}
+installed = {
+    "cv2": cv2.__version__,
+    "numpy": numpy.__version__,
+    "PIL": PIL.__version__,
+    "torch": torch.__version__,
+    "torchvision": torchvision.__version__,
+}
+for package, wanted in expected.items():
+    if installed[package] != wanted:
+        raise SystemExit(f"{package}: expected {wanted}, got {installed[package]}")
 print(f"PyTorch: {torch.__version__}")
 print(f"Torchvision: {torchvision.__version__}")
+print(f"Torch CUDA build: {torch.version.cuda or 'none'}")
 print(f"CUDA available: {torch.cuda.is_available()}")
-if torch.cuda.is_available():
-    print(f"CUDA device: {torch.cuda.get_device_name(0)}")
-if os.environ.get("KATAGO_WEB_EXPECT_CUDA") == "1" and not torch.cuda.is_available():
-    raise SystemExit("CUDA PyTorch was installed, but the NVIDIA GPU is unavailable")
+if backend == "CUDA" and (torch.version.cuda is None or not torch.cuda.is_available()):
+    raise SystemExit("CUDA vision was selected but the CUDA wheel/device is unavailable")
+if backend == "CPU" and torch.version.cuda is not None:
+    raise SystemExit("CPU vision was selected but a CUDA PyTorch wheel is still installed")
 '@
-$env:KATAGO_WEB_EXPECT_CUDA = if ($CpuVision) { "0" } else { "1" }
-$VerifyCode | & $PythonExe -
-if ($LASTEXITCODE -ne 0) { throw "Dependency import verification failed." }
+    $env:KATAGO_HANDTALK_VISION_BACKEND = $ResolvedVision
+    $VisionVerify | & $PythonExe -
+    if ($LASTEXITCODE -ne 0) { throw "Vision runtime verification failed." }
+}
 
-Write-Host "[5/5] Removing downloaded package cache..." -ForegroundColor Yellow
-& $UvExe cache clean
-if ($LASTEXITCODE -ne 0) { throw "uv cache cleanup failed." }
-
+& $UvExe cache clean | Out-Null
 Write-Host ""
-Write-Host "Setup complete. Double-click start-local.cmd to launch." -ForegroundColor Green
-Write-Host "The service only listens on http://127.0.0.1:5000." -ForegroundColor Green
+Write-Host "Setup complete." -ForegroundColor Green

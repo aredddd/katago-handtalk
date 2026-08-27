@@ -1,0 +1,6 @@
+# Human-readable inputs for requirements-vision.lock.txt. PyTorch and
+# Torchvision have separate CPU/CUDA lock files because their wheel indexes
+# are mutually exclusive.
+numpy==2.4.6
+opencv-python-headless==5.0.0.93
+Pillow==12.3.0

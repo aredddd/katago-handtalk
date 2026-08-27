@@ -12,14 +12,20 @@ import threading
 import time
 
 from katago_engine import KataGoEngine
-from config import KATAGO_PATH, MODEL_PATH, CONFIG_PATH, KATAGO_MAX_WAIT
+from config import KATAGO_PATH, MODEL_PATH, CONFIG_PATH, KATAGO_MAX_WAIT, KATAGO_WORK_DIR
 
 logger = logging.getLogger(__name__)
 
 
 def create_engine() -> KataGoEngine:
     """Instantiate the engine wrapper (does not start the subprocess)."""
-    return KataGoEngine(KATAGO_PATH, MODEL_PATH, CONFIG_PATH, max_wait=KATAGO_MAX_WAIT)
+    return KataGoEngine(
+        KATAGO_PATH,
+        MODEL_PATH,
+        CONFIG_PATH,
+        max_wait=KATAGO_MAX_WAIT,
+        working_dir=KATAGO_WORK_DIR,
+    )
 
 
 def start_engine(engine: KataGoEngine) -> bool:

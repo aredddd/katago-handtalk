@@ -1,4 +1,18 @@
-# Desktop-shell build dependencies only. The web server, OpenCV and PyTorch
-# remain in the project's separate .venv and must never be bundled here.
-pywebview==6.1
+# Human-readable inputs for desktop/requirements-desktop.lock.txt. The build
+# consumes the generated lock file, whose artifacts are protected by SHA-256.
+# The web server, OpenCV and PyTorch remain outside this lightweight shell.
+altgraph==0.17.5
+bottle==0.13.4
+cffi==2.1.1
+clr-loader==0.3.1
+packaging==26.3
+pefile==2024.8.26
+proxy-tools==0.1.0
+pycparser==3.0
 PyInstaller==6.22.2
+pyinstaller-hooks-contrib==2026.7
+pythonnet==3.1.0
+pywebview==6.1
+pywin32-ctypes==0.2.3
+setuptools==84.0.0
+typing-extensions==4.16.0

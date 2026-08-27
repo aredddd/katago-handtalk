@@ -24,7 +24,6 @@ from analysis_service import AnalysisService
 from sockets import register_socket_handlers
 from routes.pages import pages_bp
 from routes.recognition import recognition_bp
-from noword_recognizer import recognize_board_noword, is_available as recognition_is_available
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +31,25 @@ logger = logging.getLogger(__name__)
 CB_THRESHOLD = int(os.environ.get("CB_THRESHOLD", "3"))
 CB_RESET_TIMEOUT = float(os.environ.get("CB_RESET_TIMEOUT", "30"))
 MAX_SCREENSHOT_BYTES = int(os.environ.get("MAX_SCREENSHOT_BYTES", str(16 * 1024 * 1024)))
+
+
+def _load_recognition_backend():
+    """Load the optional vision stack without making it a core dependency."""
+    enabled = os.environ.get("KATAGO_VISION_ENABLED", "auto").strip().lower()
+    if enabled in {"0", "false", "no", "off", "disabled"}:
+        return None, None, False, "disabled"
+    try:
+        from vision_recognizer import (
+            is_available,
+            recognize_board_image,
+            warm_up_recognizer,
+        )
+    except (ImportError, OSError) as exc:
+        logger.info("Screenshot recognition unavailable: %s", exc)
+        return None, None, False, "dependencies_missing"
+    if not is_available():
+        return recognize_board_image, warm_up_recognizer, False, "models_missing"
+    return recognize_board_image, warm_up_recognizer, True, None
 
 def create_app(
     *,
@@ -90,11 +108,14 @@ def create_app(
     # Expose shared objects to blueprints (accessed via current_app.extensions).
     app.extensions["analysis_service"] = service
     app.extensions["engine"] = engine
-    app.extensions["board_recognizer"] = recognizer or recognize_board_noword
+    backend, warmup, backend_available, unavailable_reason = _load_recognition_backend()
+    app.extensions["board_recognizer"] = recognizer or backend
+    app.extensions["board_recognizer_warmup"] = warmup
     app.extensions["board_recognizer_available"] = (
-        recognition_is_available()
-        if recognizer_available is None
-        else bool(recognizer_available)
+        backend_available if recognizer_available is None else bool(recognizer_available)
+    )
+    app.extensions["board_recognizer_reason"] = (
+        None if app.extensions["board_recognizer_available"] else unavailable_reason
     )
     # ── HTTP routes ─────────────────────────────────────────────────────────
     app.register_blueprint(pages_bp)

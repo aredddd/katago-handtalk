@@ -44,6 +44,7 @@ test("beginner controls and analysis surfaces stay available", () => {
     "confirm-message",
     "confirm-cancel",
     "confirm-accept",
+    "app-toast",
   ];
   for (const id of requiredIds) {
     assert.match(index, new RegExp(`id=["']${id}["']`), `missing #${id}`);
@@ -68,6 +69,9 @@ test("live review reuses local recognition and never automates moves", () => {
   assert.match(app, /new LiveReviewState\.Tracker\(\)/);
   assert.match(app, /liveReviewTracker\.observe\(current, \{ frameId \}\)/);
   assert.match(app, /generation !== liveReviewGeneration \|\| !liveReviewStream/);
+  assert.match(app, /controller\.abort\("timeout"\)/);
+  assert.match(app, /recognitionTimedOut/);
+  assert.match(app, /}, 30000\)/);
   assert.equal(app.includes("mouse_event"), false);
   assert.equal(app.includes("dispatchEvent(new MouseEvent"), false);
 });
@@ -79,12 +83,18 @@ test("screenshots can be selected, snipped, or pasted from the clipboard", () =>
   assert.match(app, /imageFromClipboardData/);
   assert.match(app, /manualRecognitionSeq/);
   assert.match(app, /manualRecognitionBusy/);
-  assert.match(app, /if \(liveReviewStream \|\| liveReviewStarting \|\| manualRecognitionBusy\) return/);
-  assert.equal(app.includes("manualRecognitionController"), false);
+  assert.match(app, /liveReviewStream \|\| liveReviewStarting \|\| manualRecognitionBusy/);
+  assert.match(app, /manualRecognitionAbortController/);
+  assert.match(app, /manualRecognitionAbortController\.abort\("closed"\)/);
+  assert.match(app, /setManualRecognitionBusy\(false\)/);
+  assert.match(app, /showToast\(t\(clipboardWasReadable/);
 });
 
 test("manual recognition optimizes screenshots and surfaces uncertain intersections", () => {
   assert.match(app, /prepareManualRecognitionImage/);
+  assert.match(app, /result\.style\.display\s*=\s*"flex"/);
+  assert.match(css, /\.recognize-modal-content\s*\{[^}]*display:\s*flex;[^}]*overflow:\s*hidden;/s);
+  assert.match(css, /\.recognize-preview-row\s*\{[^}]*overflow:\s*auto;/s);
   assert.match(app, /const maxSide = 1600/);
   assert.match(app, /canvas\.toBlob\(resolve, "image\/jpeg", 0\.90\)/);
   assert.match(app, /Screenshot optimization failed; using original image/);
@@ -122,6 +132,8 @@ test("AI responses are position-scoped and hidden review shortcuts stay removed"
   assert.equal(app.includes('case "ArrowRight"'), false);
   assert.match(app, /isThinking && isAiTurn\(\)/);
   assert.match(app, /gameMode === "play-black" \? 1/);
+  assert.match(app, /invalidatePendingAi\(\);\s*if \(socket && socket\.connected\) socket\.emit\(EVENTS\.CANCEL\);\s*showAiRecovery\(t\("aiTimedOut"\)\)/);
+  assert.match(app, /showAiRecovery\(t\("aiInvalidMove"\)\)/);
 });
 
 test("analysis can be fully closed and safely reopened", () => {
@@ -137,6 +149,23 @@ test("analysis can be fully closed and safely reopened", () => {
     2,
     "an AI move must not restore evaluation after analysis is closed",
   );
+});
+
+test("release capabilities, recognition cancellation, and AI recovery are visible states", () => {
+  assert.match(app, /cfg\.capabilities/);
+  assert.match(app, /applyCapabilities\(\)/);
+  assert.match(app, /recognition\.available !== false/);
+  assert.match(app, /controller\.abort\("timeout"\)/);
+  assert.match(app, /manualRecognitionAbortController\.abort\("closed"\)/);
+  assert.match(app, /showAiRecovery/);
+  assert.match(app, /failedAiPositionKey === currentPositionKey\(\)/);
+  assert.match(app, /AI 分析已关闭/);
+  assert.match(index, /id="ai-recovery"/);
+  assert.match(index, /id="btn-recognize-cancel"/);
+  assert.match(index, /id="btn-lang"[^>]*hidden/);
+  assert.equal(zh.analysisDisabled, "AI 分析已关闭");
+  assert.equal(en.analysisDisabled, "AI analysis is off");
+  assert.match(app, /loadedLocale/);
 });
 
 test("step back removes exactly one move and never asks the AI to replay it", () => {
@@ -164,11 +193,14 @@ test("step back removes exactly one move and never asks the AI to replay it", ()
 
 test("destructive confirmations use the styled accessible dialog", () => {
   assert.doesNotMatch(app, /\bconfirm\s*\(/);
+  assert.doesNotMatch(app, /\balert\s*\(/);
   assert.match(index, /id="confirm-modal"[^>]+role="alertdialog"[^>]+aria-modal="true"/);
   assert.match(app, /function showConfirmDialog\(config\)/);
   assert.match(app, /titleKey: "newGameDialogTitle"/);
   assert.match(app, /titleKey: "resignDialogTitle"/);
   assert.match(app, /event\.key === "Escape"/);
+  assert.match(app, /function trapModalFocus\(event, modal\)/);
+  assert.match(app, /recognizeModalTrigger/);
   assert.match(css, /\.modal-overlay\[hidden\]\s*\{\s*display:\s*none/);
   assert.match(css, /\.confirm-modal-content\.is-danger/);
 });
@@ -184,6 +216,8 @@ test("new beginner and live-review strings exist in both languages", () => {
     "confirmAction", "cancel", "newGameDialogTitle", "startNewGame",
     "resignDialogTitle", "confirmResignAction",
     "stepBackHint",
+    "recognitionTimedOut", "recognizeKeyboard", "emptyPoint", "blackStone",
+    "whiteStone", "aiTimedOut", "aiInvalidMove",
   ];
   for (const key of keys) {
     assert.ok(zh[key], `missing zh.${key}`);
@@ -191,14 +225,51 @@ test("new beginner and live-review strings exist in both languages", () => {
   }
 });
 
-test("small desktop windows keep every functional card reachable", () => {
-  assert.match(css, /@media \(min-width: 841px\) and \(max-width: 1280px\)/);
-  assert.match(css, /max-height: 900px/);
-  assert.match(css, /grid-template-areas:\s*"mode action"\s*"live action"\s*"analysis pv"\s*"analysis settings"/);
-  assert.match(css, /scrollbar-gutter:\s*stable/);
+test("responsive workspaces use one stable breakpoint and readable rails", () => {
   assert.match(css, /@media \(max-width: 840px\)/);
+  assert.match(css, /@media \(min-width: 841px\) and \(max-width: 1699px\)/);
+  assert.match(css, /@media \(min-width: 1700px\) and \(min-height: 760px\)/);
+  assert.match(css, /\(min-width: 1700px\) and \(max-height: 759px\)/);
+  assert.doesNotMatch(css, /min-aspect-ratio:\s*9\s*\/\s*5/);
+  assert.match(css, /grid-template-areas:\s*"mode board action"\s*"live board suggestions"\s*"settings board pv"/);
+  assert.match(css, /scrollbar-gutter:\s*stable/);
+  assert.match(css, /overflow-y:\s*auto/);
+  assert.doesNotMatch(css, /grid-template-areas:\s*"mode action"\s*"live action"/);
+});
 
-  for (const area of ["mode", "action", "live", "analysis", "pv", "settings"]) {
-    assert.match(css, new RegExp(`grid-area:\\s*${area}`), `missing compact ${area} area`);
-  }
+test("both board canvases have keyboard interaction and a visible focus state", () => {
+  assert.match(index, /id="goboard"[^>]+tabindex="0"[^>]+role="application"/);
+  assert.match(index, /id="recognize-board-canvas"[^>]+tabindex="0"[^>]+role="application"/);
+  assert.match(app, /canvas\._recognizeKeyHandler/);
+  assert.match(app, /event\.key === "Enter" \|\| event\.key === " "/);
+  assert.match(css, /#goboard:focus-visible/);
+  assert.match(css, /#recognize-board-canvas:focus-visible/);
+});
+
+test("engine-provided suggestions and variations are rendered as text", () => {
+  assert.match(app, /button\.setAttribute\("aria-label", label\)/);
+  assert.match(app, /span\.textContent = value/);
+  assert.match(app, /item\.textContent = `\$\{i \+ 1\}\.\$\{move\}`/);
+  assert.doesNotMatch(app, /data-pv=/);
+});
+
+test("board size follows its square container instead of viewport guesses", () => {
+  const board = readFileSync(new URL("../static/js/goboard.js", import.meta.url), "utf8");
+  assert.match(board, /new ResizeObserver\(this\._handleResize\)/);
+  assert.match(board, /this\._resizeObserver\.observe\(this\.canvas\.parentElement\)/);
+  assert.match(board, /Math\.min\(availableWidth, availableHeight\)/);
+  assert.match(board, /window\.innerWidth <= 840/g);
+  assert.doesNotMatch(board, /window\.innerWidth <= 768/);
+  assert.doesNotMatch(board, /const navH\s*=/);
+  assert.doesNotMatch(board, /window\.innerWidth - 12/);
+  assert.match(css, /#goboard\s*\{[^}]*aspect-ratio:\s*1\s*\/\s*1/s);
+});
+
+test("core controls and supporting text meet the compact accessibility floor", () => {
+  assert.match(css, /\.icon-button\s*\{[^}]*min-height:\s*44px/s);
+  assert.match(css, /\.import-quick-actions button\s*\{[^}]*min-height:\s*44px/s);
+  assert.match(css, /\.suggestion-item\s*\{[^}]*min-height:\s*44px/s);
+  assert.match(css, /\.setting-row select,[\s\S]*?\.recognize-guide select\s*\{[^}]*min-height:\s*44px/);
+  assert.match(css, /\.eyebrow\s*\{[^}]*color:\s*var\(--accent-deep\)[^}]*font-size:\s*12px/s);
+  assert.match(css, /--text-muted:\s*#656870/);
 });

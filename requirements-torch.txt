@@ -1,0 +1,5 @@
+# Human-readable input used to generate the CPU and CUDA PyTorch lock files.
+# Do not install this file directly; setup-local.ps1 selects the matching
+# hashed lock for the configured vision backend.
+torch==2.11.0
+torchvision==0.26.0

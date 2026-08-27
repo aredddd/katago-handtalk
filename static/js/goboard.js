@@ -34,13 +34,24 @@ class GoBoard {
 
         // Interaction
         this.hoverPos = null;
+        this.keyboardPos = null;
+        this._keyboardFocused = false;
+        this._baseAriaLabel = typeof this.canvas.getAttribute === "function"
+            ? (this.canvas.getAttribute("aria-label") || "Go board")
+            : "Go board";
         this.pendingMovePos = null;  // mobile two-step confirmation: preview position of the first tap
         this.currentPlayer = 1; // 1=black, 2=white
         this.initialStones = null; // recognized/placed initial stones [["B","D4"], ...]
         this.initialPlayer = 1; // player to move before moves[] on an imported position
         this.positionHistory = [this._boardHash()]; // root + each local move
         this.onMoveCallback = null;
-        this.isMobile = window.innerWidth <= 768;
+        // Keep this in sync with the single stacked-layout breakpoint in
+        // style.css. Board sizing itself is container-driven, so changing
+        // browser chrome or crossing a breakpoint can never stretch the
+        // canvas or make it jump because of a second, JS-only threshold.
+        this.isMobile = window.innerWidth <= 840;
+        this._resizeFrame = null;
+        this._resizeObserver = null;
 
         this._touchMovedSignificantly = false; // distinguish a drag from a tap
 
@@ -54,12 +65,15 @@ class GoBoard {
         this._bindEvents();
         this.draw();
 
-        // Redraw on window resize
-        window.addEventListener("resize", () => {
-            this.isMobile = window.innerWidth <= 768;
-            this._initSize();
-            this.draw();
-        });
+        // Resize from the space the layout actually gives the board. This
+        // catches sidebar changes, viewport changes, and desktop WebView2
+        // resizes without maintaining a second set of guessed dimensions.
+        this._handleResize = () => this._scheduleResize();
+        window.addEventListener("resize", this._handleResize);
+        if (typeof ResizeObserver === "function") {
+            this._resizeObserver = new ResizeObserver(this._handleResize);
+            this._resizeObserver.observe(this.canvas.parentElement);
+        }
     }
 
     createEmptyBoard() {
@@ -84,6 +98,8 @@ class GoBoard {
         this.initialPlayer = 1;
         this.positionHistory = [this._boardHash()];
         this.pendingMovePos = null;
+        this.hoverPos = null;
+        this.keyboardPos = null;
         this._initSize();
         this.draw();
         this._fireNavigate();
@@ -91,32 +107,19 @@ class GoBoard {
 
     _initSize() {
         const container = this.canvas.parentElement;
-        const isMobile = window.innerWidth <= 768;
-        const headerH = document.getElementById('header')?.offsetHeight || 52;
-        // Estimated height of the nav bar + winrate strip
-        const navH = 80; // nav buttons + slider + winrate strip
-
-        let boardPixels;
-
-        if (isMobile) {
-            // Mobile portrait: fill the width
-            boardPixels = window.innerWidth - 12;
-        } else {
-            // Desktop / large screen: square board, min of available height and width.
-            // available height = viewport height - header - nav area - padding
-            const availH = window.innerHeight - headerH - navH - 32;
-            // available width = board-area width (flex already subtracts panel width and gap)
-            const boardArea = document.getElementById('board-area');
-            let availW = boardArea ? boardArea.clientWidth : container.clientWidth;
-            if (availW < 100) {
-                // Container not rendered yet — estimate
-                const panelW = window.innerWidth >= 2400 ? 460 : (window.innerWidth >= 1600 ? 380 : 320);
-                availW = window.innerWidth - panelW - 16 - 32;
-            }
-            boardPixels = Math.min(availH, availW);
-        }
-
-        boardPixels = Math.max(280, Math.floor(boardPixels));
+        const rect = typeof container.getBoundingClientRect === "function"
+            ? container.getBoundingClientRect()
+            : { width: 0, height: 0 };
+        const availableWidth = Number(container.clientWidth) || Number(rect.width) || 1;
+        // In the stacked layout CSS gives board-container an aspect ratio. The
+        // final width is a safe fallback for the very first layout pass and for
+        // lightweight test DOMs that do not expose clientHeight.
+        const availableHeight = Number(container.clientHeight) ||
+            Number(rect.height) || availableWidth;
+        const boardPixels = Math.max(
+            1,
+            Math.floor(Math.min(availableWidth, availableHeight)),
+        );
 
         const dpr = window.devicePixelRatio || 1;
         this.canvas.width = boardPixels * dpr;
@@ -129,6 +132,23 @@ class GoBoard {
         this.cellSize = (boardPixels - 2 * this.padding) / (this.size - 1);
         this.boardOriginX = this.padding;
         this.boardOriginY = this.padding;
+    }
+
+    _scheduleResize() {
+        this.isMobile = window.innerWidth <= 840;
+        if (this._resizeFrame !== null) return;
+        const resize = () => {
+            this._resizeFrame = null;
+            this._initSize();
+            this.draw();
+        };
+        if (typeof window.requestAnimationFrame === "function") {
+            this._resizeFrame = window.requestAnimationFrame(resize);
+        } else {
+            // Test DOMs and older embedded engines may not expose rAF.
+            this._resizeFrame = 0;
+            resize();
+        }
     }
 
     // ============== Coordinate conversion ==============
@@ -481,6 +501,10 @@ class GoBoard {
             this._drawHover();
         }
 
+        if (this.keyboardPos) {
+            this._drawKeyboardCursor();
+        }
+
         // Mobile two-step confirmation preview
         if (this.pendingMovePos && this.board[this.pendingMovePos.y][this.pendingMovePos.x] === 0) {
             this._drawPendingMove();
@@ -638,6 +662,34 @@ class GoBoard {
         ctx.arc(px, py, r, 0, Math.PI * 2);
         ctx.fill();
         ctx.globalAlpha = 1.0;
+    }
+
+    _drawKeyboardCursor() {
+        const ctx = this.ctx;
+        const { x, y } = this.keyboardPos;
+        const { px, py } = this.boardToPixel(x, y);
+        ctx.save();
+        ctx.strokeStyle = "#007aff";
+        ctx.lineWidth = Math.max(2, this.cellSize * 0.10);
+        ctx.setLineDash([
+            Math.max(3, this.cellSize * 0.22),
+            Math.max(2, this.cellSize * 0.12),
+        ]);
+        ctx.beginPath();
+        ctx.arc(px, py, this.cellSize * 0.57, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+    }
+
+    _updateKeyboardAria() {
+        if (typeof this.canvas.setAttribute !== "function" || !this.keyboardPos) return;
+        const { x, y } = this.keyboardPos;
+        const value = this.board[y][x];
+        const pointState = value === 1 ? "black stone" : value === 2 ? "white stone" : "empty";
+        this.canvas.setAttribute(
+            "aria-label",
+            `${this._baseAriaLabel}; ${this.boardToGtp(x, y)}; ${pointState}`,
+        );
     }
 
     /** Mobile two-step confirmation: draw the semi-transparent pending stone + glowing outline. */
@@ -968,6 +1020,10 @@ class GoBoard {
         this.canvas.addEventListener("mousemove", (e) => {
             const { cx, cy } = this._screenToCanvas(e.clientX, e.clientY);
             const pos = this.pixelToBoard(cx, cy);
+            if (this.keyboardPos && typeof this.canvas.setAttribute === "function") {
+                this.canvas.setAttribute("aria-label", this._baseAriaLabel);
+            }
+            this.keyboardPos = null;
             this.hoverPos = pos;
 
             // Detect whether hovering over a candidate move
@@ -982,7 +1038,7 @@ class GoBoard {
         });
 
         this.canvas.addEventListener("mouseleave", () => {
-            this.hoverPos = null;
+            this.hoverPos = this.keyboardPos ? { ...this.keyboardPos } : null;
             if (this.hoveredCandidateIdx >= 0) {
                 this.hoveredCandidateIdx = -1;
                 if (this.onCandidateHover) this.onCandidateHover(-1);
@@ -1009,6 +1065,66 @@ class GoBoard {
             if (pos && this.onMoveCallback) {
                 this.onMoveCallback(pos.x, pos.y);
             }
+        });
+
+        // Keyboard users can move a visible cursor and place a stone without
+        // relying on a mouse or touch screen.
+        this.canvas.addEventListener("focus", () => {
+            this._keyboardFocused = true;
+            const middle = Math.floor(this.size / 2);
+            this.keyboardPos = this.lastMove
+                ? { ...this.lastMove }
+                : { x: middle, y: middle };
+            this.hoverPos = { ...this.keyboardPos };
+            this._updateKeyboardAria();
+            this.draw();
+        });
+
+        this.canvas.addEventListener("blur", () => {
+            this._keyboardFocused = false;
+            this.keyboardPos = null;
+            this.hoverPos = null;
+            if (typeof this.canvas.setAttribute === "function") {
+                this.canvas.setAttribute("aria-label", this._baseAriaLabel);
+            }
+            this.draw();
+        });
+
+        this.canvas.addEventListener("keydown", (event) => {
+            if (event.altKey || event.ctrlKey || event.metaKey) return;
+            const supported = ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Enter", " "];
+            if (!supported.includes(event.key)) return;
+            event.preventDefault();
+            const middle = Math.floor(this.size / 2);
+            if (!this.keyboardPos) {
+                this.keyboardPos = { x: middle, y: middle };
+                this.hoverPos = { ...this.keyboardPos };
+                this._updateKeyboardAria();
+                this.draw();
+                // After a pointer interaction, the first Enter/Space reveals
+                // the keyboard cursor instead of placing an invisible move.
+                if (event.key === "Enter" || event.key === " ") return;
+            }
+            const point = this.keyboardPos;
+            if (event.key === "Enter" || event.key === " ") {
+                if (this.board[point.y][point.x] === 0 && this.onMoveCallback) {
+                    this.onMoveCallback(point.x, point.y);
+                    this._updateKeyboardAria();
+                    this.draw();
+                }
+                return;
+            }
+            const delta = {
+                ArrowLeft: [-1, 0], ArrowRight: [1, 0],
+                ArrowUp: [0, -1], ArrowDown: [0, 1],
+            }[event.key];
+            this.keyboardPos = {
+                x: Math.max(0, Math.min(this.size - 1, point.x + delta[0])),
+                y: Math.max(0, Math.min(this.size - 1, point.y + delta[1])),
+            };
+            this.hoverPos = { ...this.keyboardPos };
+            this._updateKeyboardAria();
+            this.draw();
         });
 
         // ============== Touch gestures (two-step confirmation) ==============

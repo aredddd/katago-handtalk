@@ -14,9 +14,21 @@ def make_project(tmp_path: Path, *, with_python: bool = True) -> Path:
     root = tmp_path / "KataGo-Web-Beginner"
     (root / "server").mkdir(parents=True)
     (root / "static").mkdir()
+    (root / "config").mkdir()
     (root / "models" / "image2sgf").mkdir(parents=True)
     (root / "run-local.py").write_text("print('server')", encoding="utf-8")
     (root / "setup-local.ps1").write_text("Write-Host setup", encoding="utf-8")
+    for requirement in (
+        "requirements.txt",
+        "requirements.lock.txt",
+        "requirements-vision.txt",
+        "requirements-vision.lock.txt",
+        "requirements-torch.txt",
+        "requirements-torch-cpu.lock.txt",
+        "requirements-torch-cuda.lock.txt",
+    ):
+        (root / requirement).write_text("# test\n", encoding="utf-8")
+    (root / "config" / "default_analysis.cfg").write_text("maxVisits = 1000", encoding="utf-8")
     (root / "models" / "image2sgf" / "board.pth").write_bytes(b"board")
     (root / "models" / "image2sgf" / "stone.pth").write_bytes(b"stone")
     if with_python:
@@ -29,9 +41,6 @@ def make_project(tmp_path: Path, *, with_python: bool = True) -> Path:
     (katago / "models").mkdir(parents=True)
     (katago / "katago.exe").write_bytes(b"katago")
     (katago / "models" / "kata1-tf2-b10c384-s2941M-d5872M.bin.gz").write_bytes(b"model")
-    katrain = tmp_path / "KaTrain"
-    katrain.mkdir()
-    (katrain / "analysis_5060.cfg").write_text("cfg", encoding="utf-8")
     return root
 
 
@@ -92,18 +101,18 @@ def test_pywebview_errors_share_desktop_session_log(tmp_path):
 
 
 @pytest.mark.parametrize(
-    ("payload", "expected"),
+    ("payload", "token", "expected"),
     [
-        ({"app": "katago-web-beginner", "api_version": 1}, True),
-        ({"app": "katago-web-beginner", "api_version": "1"}, True),
-        ({"running": True, "katago_path": "k", "model_path": "m"}, True),
-        ({"app": "another-app", "api_version": 1}, False),
-        ({"running": True, "katago_path": "k"}, False),
-        ([], False),
+        ({"app": "katago-web-beginner", "api_version": 1, "session_token": "secret"}, "secret", True),
+        ({"app": "katago-web-beginner", "api_version": "1", "session_token": "secret"}, "secret", True),
+        ({"app": "katago-web-beginner", "api_version": 1, "session_token": "wrong"}, "secret", False),
+        ({"running": True, "katago_path": "k", "model_path": "m"}, "secret", False),
+        ({"app": "another-app", "api_version": 1, "session_token": "secret"}, "secret", False),
+        ([], "secret", False),
     ],
 )
-def test_reusable_status_marker_and_legacy_shape(payload, expected):
-    assert dl.is_reusable_status(payload) is expected
+def test_status_requires_exact_per_launch_token(payload, token, expected):
+    assert dl.is_reusable_status(payload, token) is expected
 
 
 def test_probe_service_parses_only_our_status():
@@ -120,51 +129,35 @@ def test_probe_service_parses_only_our_status():
         def read(self, _limit):
             return json.dumps(self.payload).encode()
 
-    good = {"app": dl.SERVICE_APP_ID, "api_version": 1, "running": True}
-    assert dl.probe_service(5000, opener=lambda *_args, **_kwargs: Response(good)) == good
+    good = {
+        "app": dl.SERVICE_APP_ID,
+        "api_version": 1,
+        "session_token": "secret",
+        "running": True,
+    }
+    assert dl.probe_service(
+        5000,
+        expected_token="secret",
+        opener=lambda *_args, **_kwargs: Response(good),
+    ) == good
     assert (
         dl.probe_service(
             5000,
+            expected_token="secret",
             opener=lambda *_args, **_kwargs: Response({"app": "somebody-else"}),
         )
         is None
     )
 
 
-def test_select_service_reuses_or_avoids_an_occupied_foreign_port():
-    status = {"app": dl.SERVICE_APP_ID, "api_version": 1, "running": True}
-    reused = dl.select_service(
-        probe=lambda _port: status,
-        port_available=lambda _port: False,
-        free_port=lambda: 61234,
-    )
-    assert reused == dl.ServiceSelection(5000, True, status)
-
-    alternate = dl.select_service(
-        probe=lambda _port: None,
-        port_available=lambda _port: False,
-        free_port=lambda: 61234,
-    )
-    assert alternate.port == 61234
-    assert alternate.reused is False
-
+def test_select_service_never_reuses_an_existing_local_page():
+    checked = []
     isolated = dl.select_service(
-        probe=lambda _port: None,
-        port_available=lambda _port: True,
+        port_available=lambda port: checked.append(port) or False,
         free_port=lambda: 62345,
     )
+    assert checked == [5000]
     assert isolated == dl.ServiceSelection(62345, False)
-
-    stopped = dl.select_service(
-        probe=lambda _port: {
-            "app": dl.SERVICE_APP_ID,
-            "api_version": 1,
-            "running": False,
-        },
-        port_available=lambda _port: False,
-        free_port=lambda: 63456,
-    )
-    assert stopped == dl.ServiceSelection(63456, False)
 
 
 def test_runtime_paths_and_environment_match_start_script(tmp_path):
@@ -172,7 +165,8 @@ def test_runtime_paths_and_environment_match_start_script(tmp_path):
     paths = dl.resolve_runtime_paths(root)
     assert paths.python.name == "pythonw.exe"
     assert paths.katago == (tmp_path / "KataGo" / "katago.exe").resolve()
-    assert paths.config == (tmp_path / "KaTrain" / "analysis_5060.cfg").resolve()
+    assert paths.config == (root / "config" / "default_analysis.cfg").resolve()
+    assert paths.vision_enabled is True
 
     env = dl.build_server_environment(paths, 54321, base={"KEEP": "yes"})
     assert env == {
@@ -180,24 +174,105 @@ def test_runtime_paths_and_environment_match_start_script(tmp_path):
         "KATAGO_PATH": str(paths.katago),
         "KATAGO_MODEL": str(paths.model),
         "KATAGO_CONFIG": str(paths.config),
+        "KATAGO_WORK_DIR": str(dl.runtime_data_root() / "katago-work"),
         "PORT": "54321",
         "DEFAULT_LANGUAGE": "zh",
         "DEFAULT_MAX_VISITS": "1000",
         "PYTHONUTF8": "1",
         "PYTHONUNBUFFERED": "1",
         "KATAGO_WEB_NO_BROWSER": "1",
+        "KATAGO_VISION_ENABLED": "1",
+        "KATAGO_HANDTALK_DESKTOP": "1",
+        "KATAGO_VISION_BOARD_MODEL": str(paths.board_model),
+        "KATAGO_VISION_STONE_MODEL": str(paths.stone_model),
     }
+
+
+def test_new_vision_model_directory_is_preferred_as_a_complete_pair(tmp_path):
+    root = make_project(tmp_path)
+    preferred = root / "models" / "vision"
+    preferred.mkdir()
+    (preferred / "board.pth").write_bytes(b"new-board")
+    (preferred / "stone.pth").write_bytes(b"new-stone")
+
+    settings = dl.discover_runtime_settings(root)
+
+    assert settings.board_model == (preferred / "board.pth").resolve()
+    assert settings.stone_model == (preferred / "stone.pth").resolve()
+
+
+def test_incomplete_new_vision_directory_falls_back_to_legacy_pair(tmp_path):
+    root = make_project(tmp_path)
+    preferred = root / "models" / "vision"
+    preferred.mkdir()
+    (preferred / "board.pth").write_bytes(b"new-board")
+
+    settings = dl.discover_runtime_settings(root)
+
+    assert settings.board_model == (root / "models" / "image2sgf" / "board.pth").resolve()
+    assert settings.stone_model == (root / "models" / "image2sgf" / "stone.pth").resolve()
 
 
 def test_runtime_validation_reports_all_missing_files(tmp_path):
     root = make_project(tmp_path)
     (tmp_path / "KataGo" / "katago.exe").unlink()
     (root / "models" / "image2sgf" / "stone.pth").unlink()
+    settings = dl.RuntimeSettings(
+        katago=tmp_path / "KataGo" / "katago.exe",
+        model=tmp_path / "KataGo" / "models" / "kata1-tf2-b10c384-s2941M-d5872M.bin.gz",
+        config=root / "config" / "default_analysis.cfg",
+        vision_enabled=True,
+        board_model=root / "models" / "image2sgf" / "board.pth",
+        stone_model=root / "models" / "image2sgf" / "stone.pth",
+    )
     with pytest.raises(dl.LauncherError) as error:
-        dl.resolve_runtime_paths(root)
+        dl.resolve_runtime_paths(root, settings=settings)
     message = str(error.value)
     assert "katago.exe" in message
     assert "stone.pth" in message
+
+
+def test_runtime_settings_are_atomic_and_vision_is_optional(tmp_path):
+    root = make_project(tmp_path)
+    settings_file = tmp_path / "desktop-data" / "settings.json"
+    settings = dl.RuntimeSettings(
+        katago=tmp_path / "KataGo" / "katago.exe",
+        model=tmp_path / "KataGo" / "models" / "kata1-tf2-b10c384-s2941M-d5872M.bin.gz",
+        config=root / "config" / "default_analysis.cfg",
+        vision_enabled=False,
+    )
+    dl.save_runtime_settings(settings_file, settings)
+    assert not settings_file.with_suffix(".json.tmp").exists()
+    assert dl.load_runtime_settings(settings_file) == settings
+
+    (root / "models" / "image2sgf" / "board.pth").unlink()
+    (root / "models" / "image2sgf" / "stone.pth").unlink()
+    paths = dl.resolve_runtime_paths(
+        root,
+        require_python=False,
+        settings_file=settings_file,
+    )
+    assert paths.vision_enabled is False
+    assert paths.katago.is_file()
+
+
+def test_missing_engine_opens_trusted_first_run_configuration(tmp_path):
+    root = make_project(tmp_path)
+    (tmp_path / "KataGo" / "katago.exe").unlink()
+    launcher = dl.DesktopLauncher(root, tmp_path / "desktop-data" / "logs" / "session.log")
+
+    class Window:
+        def __init__(self):
+            self.scripts = []
+
+        def evaluate_js(self, script):
+            self.scripts.append(script)
+
+    window = Window()
+    launcher.attach_window(window)
+    launcher._startup_worker()
+    assert any('"kind": "configure"' in script for script in window.scripts)
+    assert launcher.owned_process is None
 
 
 def test_first_run_streams_setup_and_uses_hidden_powershell(tmp_path, monkeypatch):
@@ -233,11 +308,12 @@ def test_first_run_streams_setup_and_uses_hidden_powershell(tmp_path, monkeypatc
         return owned
 
     monkeypatch.setattr(launcher, "_spawn_owned", fake_spawn)
-    monkeypatch.setattr(launcher, "_runtime_is_healthy", lambda _python: True)
-    launcher._ensure_runtime()
+    monkeypatch.setattr(launcher, "_runtime_is_healthy", lambda *_args: True)
+    launcher._ensure_runtime(dl.discover_runtime_settings(root))
     assert captured["command"][0] == "powershell.exe"
     assert "-ExecutionPolicy" in captured["command"]
-    assert captured["command"][-1].endswith("setup-local.ps1")
+    assert str(root / "setup-local.ps1") in captured["command"]
+    assert "-VisionBackend" in captured["command"]
     assert launcher._needs_setup is False
 
 
@@ -245,7 +321,7 @@ def test_existing_broken_runtime_is_repaired_instead_of_trusted(tmp_path, monkey
     root = make_project(tmp_path)
     launcher = dl.DesktopLauncher(root, tmp_path / "logs" / "session.log")
     health = iter([False, True])
-    monkeypatch.setattr(launcher, "_runtime_is_healthy", lambda _python: next(health))
+    monkeypatch.setattr(launcher, "_runtime_is_healthy", lambda *_args: next(health))
 
     class Process:
         pid = 123
@@ -266,7 +342,7 @@ def test_existing_broken_runtime_is_repaired_instead_of_trusted(tmp_path, monkey
         return owned
 
     monkeypatch.setattr(launcher, "_spawn_owned", fake_spawn)
-    launcher._ensure_runtime()
+    launcher._ensure_runtime(dl.discover_runtime_settings(root))
     assert launcher._needs_setup is False
 
 
@@ -296,7 +372,7 @@ def test_server_command_uses_venv_python_and_no_browser_environment(tmp_path, mo
     assert captured["env"]["KATAGO_WEB_NO_BROWSER"] == "1"
 
 
-def test_reused_service_is_loaded_but_never_owned(tmp_path, monkeypatch):
+def test_startup_navigates_only_after_its_own_token_is_verified(tmp_path, monkeypatch):
     root = make_project(tmp_path)
     launcher = dl.DesktopLauncher(root, tmp_path / "logs" / "session.log")
 
@@ -312,14 +388,27 @@ def test_reused_service_is_loaded_but_never_owned(tmp_path, monkeypatch):
 
     window = Window()
     launcher.attach_window(window)
-    status = {"app": dl.SERVICE_APP_ID, "api_version": 1, "running": True}
-    monkeypatch.setattr(
-        dl,
-        "select_service",
-        lambda _port: dl.ServiceSelection(5000, True, status),
-    )
+    process = object()
+    captured = {}
+    monkeypatch.setattr(launcher, "_ensure_runtime", lambda _settings: None)
+    monkeypatch.setattr(dl, "select_service", lambda _port: dl.ServiceSelection(61234, False))
+    monkeypatch.setattr(launcher, "_start_server", lambda _paths, _env: process)
+    def verified(port, child, token):
+        captured.update(port=port, child=child, token=token)
+        return {
+            "app": dl.SERVICE_APP_ID,
+            "api_version": 1,
+            "session_token": token,
+            "running": True,
+        }
+    monkeypatch.setattr(launcher, "_wait_until_ready", verified)
     launcher._startup_worker()
-    assert window.urls == ["http://127.0.0.1:5000"]
+    assert window.urls == ["http://127.0.0.1:61234"]
+    assert captured == {
+        "port": 61234,
+        "child": process,
+        "token": launcher._session_token,
+    }
     assert launcher.owned_process is None
 
 
@@ -376,6 +465,9 @@ def test_native_bridge_registers_only_the_explicit_allowlist(tmp_path):
     launcher.expose_native_api()
     assert window.exposed == [
         "retry_startup",
+        "choose_runtime_file",
+        "save_runtime_config",
+        "open_runtime_configuration",
         "open_logs",
         "open_snipping_tool",
         "read_clipboard_image",
@@ -463,3 +555,69 @@ def test_launcher_source_does_not_import_heavy_runtime():
     source = Path(dl.__file__).read_text(encoding="utf-8")
     assert "import torch" not in source
     assert "from torch" not in source
+
+
+def test_startup_error_can_return_to_runtime_configuration():
+    assert 'onclick="configure()">修改配置</button>' in dl.STARTUP_HTML
+    assert "window.pywebview.api.open_runtime_configuration()" in dl.STARTUP_HTML
+
+
+def test_runtime_fingerprint_distinguishes_vision_backends(tmp_path):
+    root = make_project(tmp_path)
+    python = root / ".venv" / "Scripts" / "python.exe"
+    site_packages = root / ".venv" / "Lib" / "site-packages"
+    for relative in (
+        "flask/__init__.py",
+        "flask_socketio/__init__.py",
+        "simple_websocket/__init__.py",
+        "cv2/__init__.py",
+        "torch/__init__.py",
+        "torchvision/__init__.py",
+    ):
+        path = site_packages / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("# test\n", encoding="utf-8")
+    (root / "requirements.txt").write_text("flask\n", encoding="utf-8")
+    (root / "requirements.lock.txt").write_text("flask==3.1.3\n", encoding="utf-8")
+    (root / "requirements-vision.txt").write_text("opencv-python\n", encoding="utf-8")
+    (root / "requirements-vision.lock.txt").write_text("opencv-python==5\n", encoding="utf-8")
+
+    launcher = dl.DesktopLauncher(root, tmp_path / "logs" / "session.log")
+    cuda = launcher._runtime_fingerprint(python, True, "cuda")
+    cpu = launcher._runtime_fingerprint(python, True, "cpu")
+
+    assert cuda is not None and cpu is not None
+    assert cuda["vision_backend"] == "cuda"
+    assert cpu["vision_backend"] == "cpu"
+    assert cuda != cpu
+    assert cuda["schema"] == 2
+    assert cuda["app_version"] == dl.APP_VERSION
+    assert all(
+        "sha256" in record and "mtime_ns" not in record
+        for record in cuda["files"].values()
+    )
+
+
+def test_setup_replaces_and_verifies_the_selected_torch_wheel_flavor():
+    source = Path("setup-local.ps1").read_text(encoding="utf-8")
+    assert source.count("--require-hashes") >= 3
+    assert "requirements-torch-cuda.lock.txt" in source
+    assert "requirements-torch-cpu.lock.txt" in source
+    assert "--reinstall-package torch" in source
+    assert "--reinstall-package torchvision" in source
+    assert "--torch-backend $TorchBackend" in source
+    assert 'suffix = "+cu128" if backend == "CUDA" else "+cpu"' in source
+    assert "torch.version.cuda is None" in source
+    assert "$PythonVersion = \"3.11.16\"" in source
+    assert "ActualUvVersion" in source
+    assert "ActualPythonVersion" in source
+
+
+def test_start_script_prefers_the_new_vision_weight_directory():
+    source = Path("start-local.ps1").read_text(encoding="utf-8")
+    preferred = source.index('models\\vision\\board.pth')
+    legacy = source.index('models\\image2sgf\\board.pth')
+
+    assert preferred < legacy
+    assert "$PreferredBoardVisionModel" in source
+    assert "$LegacyBoardVisionModel" in source

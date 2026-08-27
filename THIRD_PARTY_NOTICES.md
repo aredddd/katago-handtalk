@@ -9,20 +9,9 @@
 
 - 来源：<https://github.com/michelzzw/katago-web>
 - 范围：本仓库的基础代码和历史。
-- 已知许可状态：上游 README 从初始版本起标有 “MIT”，但截至 2026-08-28
-  仓库中没有完整 `LICENSE`，GitHub 也未识别出许可证。
-- 注意：本仓库保留上游归属；根目录 `LICENSE` 只授权本分支贡献者拥有权利的
-  原创修改，并不代替上游作者作出新的许可声明。
-
-### noword/image2sgf
-
-- 来源：<https://github.com/noword/image2sgf>
-- 范围：`server/noword_recognizer.py` 的棋盘定位、透视校正和 361 点分类流程基于
-  该项目；运行时可选用其 `board.pth`、`stone.pth` 权重。
-- 已知许可状态：截至 2026-08-28，源仓库、发布页和模型文件均未提供明确许可。
-- 注意：权重被 `.gitignore` 排除，本仓库不镜像或重新分发它们。根目录 MIT
-  授权不覆盖相应第三方衍生部分。公开再分发前应先获得作者明确授权，或改用具有
-  清晰许可的独立实现和模型。
+- 许可：上游 README 从初始版本起声明 “MIT”；本仓库保留其归属，并在根目录
+  [`LICENSE`](LICENSE) 中同时保留上游与本项目贡献者的 MIT 声明。上游仓库本身
+  截至 2026-08-28 未提供单独的完整许可证文件。
 
 ### KaTrain 音效
 
@@ -59,12 +48,32 @@
   [`third_party/KataGo-Network-LICENSE.txt`](third_party/KataGo-Network-LICENSE.txt)。
   其他贡献者网络可能采用不同条款，替换模型时应重新确认。
 
+### 可兼容的截图识别权重
+
+- 本仓库中的 `server/vision_recognizer.py` 是为本项目编写的独立实现；源码按根目录
+  MIT 许可证提供。
+- 它可以读取符合其 FCOS / EfficientNet 检查点结构的用户自备权重，包括可能从
+  [noword/image2sgf](https://github.com/noword/image2sgf) 取得的兼容文件。
+- 截至 2026-08-28，`noword/image2sgf` 仓库及发布的 `board.pth`、`stone.pth`
+  未提供明确许可证。本仓库和 Release 均不包含、镜像、自动下载或重新分发任何
+  识图权重；用户应只选择自己有权使用的文件，并自行确认适用许可。
+
 ### Python 与桌面构建依赖
 
-`requirements.txt`、`desktop/requirements-desktop.txt` 和 PyTorch 安装步骤会从各自
-上游安装依赖。源码仓库没有把这些依赖重新打包。若发布 PyInstaller 桌面成品，
-应基于实际构建产物生成依赖清单，并附 Python、PyInstaller、pywebview、OpenCV、
-Flask、PyTorch、CUDA/cuDNN 及其间接组件要求的许可证或声明。
+便携 ZIP 会打包轻量桌面壳所需的 Python、PyInstaller、PyWebView、WebView2 loader、
+pythonnet 与间接组件，但不打包 Flask、OpenCV、PyTorch 或 CUDA。构建脚本从实际
+制品生成 Python 包清单与逐文件原生组件清单，并在 `licenses/` 中收录项目、Python、
+OpenSSL、libffi、WebView2、.NET facade 和桌面依赖的许可证/NOTICE；任何必需文本、
+固定来源或二进制哈希缺失都会使发布打包失败。
+
+首次运行按用户选择从哈希锁文件安装 Flask 及可选的 CPU / CUDA 识图依赖到本机
+`%LOCALAPPDATA%` 运行环境。这些后下载组件不是 Release ZIP 的组成部分，各自继续
+适用其上游许可证。
+
+桌面壳使用的 `proxy_tools 0.1.0` wheel 没有携带许可证文件，且包元数据与上游
+仓库的许可证标识不一致。发行构建采用上游仓库 `LICENSE.txt` 的 BSD 文本，其
+固定副本收录在 [`third_party/proxy_tools-LICENSE.txt`](third_party/proxy_tools-LICENSE.txt)；
+桌面构建还会从实际构建环境提取其他 Python 包的许可文件和版本清单。
 
 ## 发布前检查
 

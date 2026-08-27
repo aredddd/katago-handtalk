@@ -14,21 +14,37 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Set up Python
-        uses: actions/setup-python@v7
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
-          python-version: "3.11"
+          python-version: "3.11.16"
 
       - name: Install Python test dependencies
-        run: python -m pip install -r requirements-dev.txt
+        run: python -m pip install --require-hashes -r requirements-dev.lock.txt
 
       - name: Run Python tests
         run: python -m pytest -q
 
+      - name: Verify CPU and CUDA vision locks
+        shell: pwsh
+        run: |
+          python -m uv pip install --dry-run --reinstall `
+            --python (Get-Command python).Source `
+            --require-hashes `
+            --requirement requirements-torch-cpu.lock.txt `
+            --torch-backend cpu
+          if ($LASTEXITCODE -ne 0) { throw "CPU vision lock verification failed." }
+          python -m uv pip install --dry-run --reinstall `
+            --python (Get-Command python).Source `
+            --require-hashes `
+            --requirement requirements-torch-cuda.lock.txt `
+            --torch-backend cu128
+          if ($LASTEXITCODE -ne 0) { throw "CUDA vision lock verification failed." }
+
       - name: Set up Node.js
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: "24"
 

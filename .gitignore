@@ -9,6 +9,7 @@ desktop-dist/
 *.egg
 
 # Model weights (too large for git)
+models/vision/*.pth
 models/image2sgf/*.pth
 
 # Environment

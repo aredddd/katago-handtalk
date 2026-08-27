@@ -13,7 +13,6 @@ import threading
 from app_factory import create_app
 from engine_lifecycle import start_engine
 from config import KATAGO_PATH, MODEL_PATH, PORT
-from noword_recognizer import NOWORD_AVAILABLE, warm_up_recognizer
 
 logging.basicConfig(
     level=logging.INFO,
@@ -31,14 +30,16 @@ if __name__ == "__main__":
     print(f"  KataGo : {KATAGO_PATH}")
     print(f"  Model  : {MODEL_PATH}")
     print(f"  Port   : {PORT}")
-    print(f"  Vision : {'noword CNN available' if NOWORD_AVAILABLE else 'model not found'}")
+    vision_available = bool(app.extensions.get("board_recognizer_available"))
+    vision_warmup = app.extensions.get("board_recognizer_warmup")
+    print(f"  Vision : {'available' if vision_available else 'optional / unavailable'}")
     print("=" * 60)
 
     engine = app.extensions["engine"]
     if start_engine(engine):
-        if NOWORD_AVAILABLE:
+        if vision_available and callable(vision_warmup):
             threading.Thread(
-                target=warm_up_recognizer,
+                target=vision_warmup,
                 daemon=True,
                 name="recognizer-warmup",
             ).start()

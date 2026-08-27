@@ -14,7 +14,7 @@
     --text-color: #1d1d1f;
     --text-primary: #17171a;
     --text-secondary: #53545a;
-    --text-muted: #76777e;
+    --text-muted: #656870;
     --accent-color: #007aff;
     --accent-hover: #1687ff;
     --accent-deep: #07599f;
@@ -53,7 +53,7 @@
         --text-color: #f5f5f7;
         --text-primary: #ffffff;
         --text-secondary: #c2c3ca;
-        --text-muted: #92949d;
+        --text-muted: #aeb1ba;
         --accent-color: #0a84ff;
         --accent-hover: #409cff;
         --accent-deep: #70b7ff;
@@ -111,7 +111,9 @@ button {
 
 button:focus-visible,
 select:focus-visible,
-input:focus-visible {
+input:focus-visible,
+#goboard:focus-visible,
+#recognize-board-canvas:focus-visible {
     outline: 2px solid var(--accent-color);
     outline-offset: 3px;
     box-shadow: 0 0 0 4px rgba(0, 122, 255, 0.18);
@@ -208,7 +210,7 @@ input:focus-visible {
 .brand p {
     margin-top: 3px;
     color: var(--text-muted);
-    font-size: 11px;
+    font-size: 12px;
     line-height: 1;
     letter-spacing: 0.05em;
 }
@@ -257,7 +259,7 @@ input:focus-visible {
 }
 
 .icon-button {
-    min-height: 38px;
+    min-height: 44px;
     padding: 0 12px;
     cursor: pointer;
     color: var(--text-secondary);
@@ -346,11 +348,14 @@ html.desktop-shell .desktop-only {
     align-items: center;
     justify-content: center;
     overflow: visible;
+    contain: layout size;
 }
 
 #goboard {
     display: block;
     max-width: 100%;
+    max-height: 100%;
+    aspect-ratio: 1 / 1;
     cursor: crosshair;
     border: 1px solid rgba(255, 255, 255, 0.62);
     border-radius: 10px;
@@ -457,7 +462,7 @@ html.desktop-shell .desktop-only {
 .score-caption {
     margin-left: 2px;
     color: var(--text-muted);
-    font-size: 11px;
+    font-size: 12px;
 }
 
 .score-lead-inline {
@@ -502,10 +507,10 @@ html.desktop-shell .desktop-only {
 
 /* Right panel */
 #panel {
-    width: 376px;
+    width: clamp(340px, 44vw, 430px);
     max-height: 100%;
     display: flex;
-    flex: 0 0 376px;
+    flex: 0 0 clamp(340px, 44vw, 430px);
     flex-direction: column;
     gap: 7px;
     padding-right: 2px;
@@ -567,8 +572,8 @@ html.desktop-shell .desktop-only {
 
 .eyebrow {
     display: block;
-    color: var(--accent-color);
-    font-size: 10px;
+    color: var(--accent-deep);
+    font-size: 12px;
     font-weight: 750;
     line-height: 1;
     letter-spacing: 0.16em;
@@ -652,7 +657,7 @@ html.desktop-shell .desktop-only {
     display: block;
     margin-top: 2px;
     color: var(--text-muted);
-    font-size: 11px;
+    font-size: 12px;
     line-height: 1.25;
 }
 
@@ -703,7 +708,7 @@ html.desktop-shell .desktop-only {
 
 .import-quick-actions button {
     min-width: 0;
-    min-height: 38px;
+    min-height: 44px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -715,7 +720,7 @@ html.desktop-shell .desktop-only {
     border-radius: 11px;
     background: var(--control-bg);
     box-shadow: inset 0 1px 0 var(--glass-highlight);
-    font-size: 11px;
+    font-size: 13px;
     font-weight: 640;
     white-space: nowrap;
     transition: color 150ms ease, border-color 150ms ease, background 150ms ease, transform 100ms ease;
@@ -743,7 +748,7 @@ html.desktop-shell .desktop-only {
 .paste-hint {
     margin: 0 2px 8px;
     color: var(--text-muted);
-    font-size: 10px;
+    font-size: 12px;
     line-height: 1.45;
 }
 
@@ -757,7 +762,7 @@ html.desktop-shell .desktop-only {
     border-radius: 5px;
     background: var(--control-bg);
     box-shadow: inset 0 1px 0 var(--glass-highlight);
-    font: 600 9px/1.35 ui-monospace, "SFMono-Regular", Consolas, monospace;
+    font: 600 12px/1.35 ui-monospace, "SFMono-Regular", Consolas, monospace;
     text-align: center;
 }
 
@@ -798,7 +803,7 @@ html.desktop-shell .desktop-only {
     border-radius: 13px;
     background: var(--control-bg);
     box-shadow: inset 0 1px 0 var(--glass-highlight);
-    font-size: 12px;
+    font-size: 13px;
     font-weight: 620;
     transition: color 150ms ease, border-color 150ms ease, background 150ms ease, transform 100ms ease;
 }
@@ -936,7 +941,7 @@ html.desktop-shell .desktop-only {
     color: var(--accent-color);
     border: 1px solid rgba(0, 122, 255, 0.26);
     border-radius: 999px;
-    font-size: 9px;
+    font-size: 12px;
     font-weight: 800;
     letter-spacing: 0.08em;
 }
@@ -1024,7 +1029,7 @@ html.desktop-shell .desktop-only {
 
 .live-turn-control select {
     width: 100%;
-    min-height: 34px;
+    min-height: 44px;
     padding: 0 28px 0 9px;
     cursor: pointer;
     color: var(--text-primary);
@@ -1037,7 +1042,7 @@ html.desktop-shell .desktop-only {
 .live-turn-control small {
     grid-column: 1 / -1;
     color: var(--text-muted);
-    font-size: 10px;
+    font-size: 12px;
     line-height: 1.4;
 }
 
@@ -1058,7 +1063,7 @@ html.desktop-shell .desktop-only {
 /* Analysis */
 .analysis-hint {
     color: var(--text-muted);
-    font-size: 11px;
+    font-size: 12px;
 }
 
 #suggestions-list {
@@ -1067,7 +1072,8 @@ html.desktop-shell .desktop-only {
 }
 
 .suggestion-item {
-    min-height: 42px;
+    width: 100%;
+    min-height: 44px;
     display: flex;
     align-items: center;
     gap: 8px;
@@ -1075,9 +1081,79 @@ html.desktop-shell .desktop-only {
     padding: 7px 9px;
     cursor: pointer;
     border: 1px solid transparent;
+    color: inherit;
+    background: transparent;
     border-radius: 11px;
     font-size: 13px;
     transition: border-color 140ms ease, background 140ms ease;
+}
+
+#winrate-strip.is-disabled {
+    opacity: 0.64;
+}
+
+#winrate-strip.is-disabled #winrate-bar-black {
+    background: var(--text-muted);
+    box-shadow: none;
+}
+
+.ai-recovery {
+    margin-top: 8px;
+    padding: 11px;
+    border: 1px solid color-mix(in srgb, #d94f45 34%, transparent);
+    border-radius: 12px;
+    background: color-mix(in srgb, #d94f45 9%, transparent);
+    font-size: 13px;
+}
+
+.ai-recovery[hidden] {
+    display: none;
+}
+
+.ai-recovery strong,
+.ai-recovery > span {
+    display: block;
+}
+
+.ai-recovery > span {
+    margin-top: 3px;
+    color: var(--text-secondary);
+    font-size: 12px;
+}
+
+.ai-recovery > div {
+    display: flex;
+    gap: 7px;
+    margin-top: 9px;
+}
+
+.ai-recovery button,
+#btn-recognize-cancel {
+    min-height: 44px;
+    padding: 8px 13px;
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    background: var(--control-bg);
+}
+
+.recognize-error {
+    max-width: 480px;
+    margin: 10px auto;
+    color: #b93630;
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+.settings-link {
+    width: 100%;
+    min-height: 44px;
+    margin-top: 9px;
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    color: var(--accent-deep);
+    background: var(--control-bg);
+    font-size: 13px;
+    font-weight: 650;
 }
 
 .suggestion-item:hover {
@@ -1100,7 +1176,7 @@ html.desktop-shell .desktop-only {
     padding: 0 5px;
     color: #fff;
     border-radius: 999px;
-    font-size: 10px;
+    font-size: 12px;
     font-weight: 750;
 }
 
@@ -1123,14 +1199,14 @@ html.desktop-shell .desktop-only {
     width: 48px;
     flex: 0 0 48px;
     color: var(--text-secondary);
-    font-size: 11px;
+    font-size: 12px;
     text-align: right;
 }
 
 .suggestion-item .visits-count {
     flex: 1;
     color: var(--text-muted);
-    font-size: 11px;
+    font-size: 12px;
     text-align: right;
 }
 
@@ -1225,7 +1301,7 @@ html.desktop-shell .desktop-only {
 
 .setting-row select,
 .recognize-guide select {
-    min-height: 36px;
+    min-height: 44px;
     padding: 0 29px 0 10px;
     cursor: pointer;
     color: var(--text-primary);
@@ -1238,7 +1314,7 @@ html.desktop-shell .desktop-only {
 .settings-note {
     padding-top: 8px;
     color: var(--text-muted);
-    font-size: 11px;
+    font-size: 12px;
     line-height: 1.5;
 }
 
@@ -1260,6 +1336,39 @@ html.desktop-shell .desktop-only {
     display: none;
 }
 
+.app-toast {
+    position: fixed;
+    top: 70px;
+    left: 50%;
+    z-index: 1100;
+    width: max-content;
+    max-width: min(520px, calc(100vw - 28px));
+    padding: 13px 18px;
+    color: var(--text-primary);
+    border: 1px solid var(--glass-border);
+    border-radius: 15px;
+    background: var(--bg-panel);
+    box-shadow: var(--glass-shadow), inset 0 1px 0 var(--glass-highlight);
+    -webkit-backdrop-filter: blur(26px) saturate(170%);
+    backdrop-filter: blur(26px) saturate(170%);
+    font-size: 14px;
+    font-weight: 620;
+    line-height: 1.45;
+    text-align: center;
+    pointer-events: none;
+    transform: translateX(-50%);
+    animation: app-toast-in 160ms ease-out;
+}
+
+.app-toast[hidden] {
+    display: none;
+}
+
+@keyframes app-toast-in {
+    from { opacity: 0; transform: translate(-50%, -6px); }
+    to { opacity: 1; transform: translate(-50%, 0); }
+}
+
 .modal-content {
     width: 100%;
     max-height: min(92vh, 780px);
@@ -1273,7 +1382,29 @@ html.desktop-shell .desktop-only {
 }
 
 .recognize-modal-content {
+    height: min(92vh, 780px);
     max-width: 790px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.recognize-modal-content .modal-header {
+    flex: 0 0 auto;
+}
+
+.recognize-modal-content .modal-body {
+    min-height: 0;
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+#recognize-result {
+    min-height: 0;
+    flex: 1 1 auto;
+    flex-direction: column;
 }
 
 .modal-header {
@@ -1287,8 +1418,8 @@ html.desktop-shell .desktop-only {
 }
 
 .modal-close-btn {
-    width: 40px;
-    height: 40px;
+    width: 44px;
+    height: 44px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -1470,10 +1601,14 @@ html.desktop-shell .desktop-only {
 }
 
 .recognize-preview-row {
+    min-height: 0;
     display: grid;
+    flex: 1 1 auto;
     grid-template-columns: minmax(320px, 420px) minmax(190px, 1fr);
     align-items: start;
     gap: 22px;
+    overflow: auto;
+    overscroll-behavior: contain;
 }
 
 .recognize-preview-col {
@@ -1517,15 +1652,15 @@ html.desktop-shell .desktop-only {
 .recognize-source-figure figcaption {
     margin-top: 5px;
     color: var(--text-muted);
-    font-size: 11px;
+    font-size: 12px;
     line-height: 1.4;
 }
 
 .guide-step {
     display: inline-block;
     margin-top: 10px;
-    color: var(--accent-color);
-    font-size: 11px;
+    color: var(--accent-deep);
+    font-size: 12px;
     font-weight: 800;
     letter-spacing: 0.12em;
 }
@@ -1565,7 +1700,7 @@ html.desktop-shell .desktop-only {
 
 .recognize-guide select {
     width: 100%;
-    min-height: 42px;
+    min-height: 44px;
     margin-top: 7px;
 }
 
@@ -1582,10 +1717,11 @@ html.desktop-shell .desktop-only {
     border: 1px solid var(--glass-border);
     border-radius: 999px;
     background: var(--control-bg);
-    font-size: 11px;
+    font-size: 12px;
 }
 
 .recognize-hint {
+    flex: 0 0 auto;
     margin-top: 13px;
     padding: 11px 13px;
     color: var(--text-secondary);
@@ -1601,6 +1737,7 @@ html.desktop-shell .desktop-only {
 }
 
 .recognize-actions {
+    flex: 0 0 auto;
     display: flex;
     justify-content: flex-end;
     gap: 9px;
@@ -1681,8 +1818,8 @@ html.desktop-shell .desktop-only {
 /* Large displays */
 @media (min-width: 1600px) {
     #panel {
-        width: 404px;
-        flex-basis: 404px;
+        width: 430px;
+        flex-basis: 430px;
     }
 
     .panel-section {
@@ -1731,8 +1868,8 @@ html.desktop-shell .desktop-only {
     }
 }
 
-/* Ultrawide desktop: three centered columns, with controls grouped around the board. */
-@media (min-width: 1700px) and (min-aspect-ratio: 9/5) {
+/* Wide desktop: true left and right rails only when there is enough height. */
+@media (min-width: 1700px) and (min-height: 760px) {
     #main-content {
         display: grid;
         grid-template-columns:
@@ -1836,7 +1973,7 @@ html.desktop-shell .desktop-only {
     }
 
     .eyebrow {
-        font-size: clamp(10px, 0.44vw, 12px);
+        font-size: clamp(12px, 0.52vw, 14px);
     }
 
     .mode-buttons {
@@ -1864,7 +2001,7 @@ html.desktop-shell .desktop-only {
     .import-button small,
     .ai-actions small,
     .live-review-copy p {
-        font-size: clamp(10px, 0.48vw, 12px);
+        font-size: clamp(12px, 0.52vw, 14px);
     }
 
     .import-button {
@@ -1872,7 +2009,7 @@ html.desktop-shell .desktop-only {
     }
 
     .import-quick-actions button {
-        min-height: clamp(34px, 3.2vh, 40px);
+        min-height: clamp(44px, 3.8vh, 50px);
     }
 
     .paste-hint {
@@ -1881,7 +2018,7 @@ html.desktop-shell .desktop-only {
 
     .action-buttons button {
         min-height: clamp(46px, 4vh, 54px);
-        font-size: clamp(11px, 0.53vw, 13px);
+        font-size: clamp(13px, 0.58vw, 15px);
     }
 
     .action-buttons button > span:first-child {
@@ -1921,7 +2058,7 @@ html.desktop-shell .desktop-only {
 
     .suggestion-item .wr,
     .suggestion-item .visits-count {
-        font-size: clamp(11px, 0.48vw, 13px);
+        font-size: clamp(12px, 0.52vw, 14px);
     }
 
     .section-toggle {
@@ -1949,7 +2086,7 @@ html.desktop-shell .desktop-only {
     }
 }
 
-/* Tablet and phone. Keep the document scrollable before the desktop grid gets too narrow. */
+/* Tablet and phone. CSS and GoBoard share this one 840px breakpoint. */
 @media (max-width: 840px) {
     body,
     #app {
@@ -1981,16 +2118,16 @@ html.desktop-shell .desktop-only {
     }
 
     .engine-pill {
-        min-height: 32px;
+        min-height: 44px;
         padding: 0 9px;
-        font-size: 11px;
+        font-size: 12px;
     }
 
     .icon-button {
-        min-height: 32px;
+        min-height: 44px;
         padding: 0 8px;
         border-radius: 8px;
-        font-size: 10px;
+        font-size: 12px;
     }
 
     #main-content {
@@ -2003,16 +2140,19 @@ html.desktop-shell .desktop-only {
     }
 
     #board-area {
-        width: 100%;
+        width: min(100%, 460px);
+        max-width: 460px;
         height: auto;
         flex: 0 0 auto;
         gap: 5px;
+        margin-inline: auto;
         overflow: visible;
     }
 
     #board-container {
         width: 100%;
         height: auto;
+        aspect-ratio: 1 / 1;
         flex: 0 0 auto;
     }
 
@@ -2025,7 +2165,7 @@ html.desktop-shell .desktop-only {
     }
 
     #move-nav {
-        min-height: 30px;
+        min-height: 36px;
     }
 
     #panel {
@@ -2170,301 +2310,42 @@ html.desktop-shell .desktop-only {
 }
 
 /*
- * Compact desktop workspace.
- *
- * A 900x650 native window cannot use the phone layout, while one tall sidebar
- * makes half of the controls look missing. Give the sidebar more horizontal
- * room and arrange every functional card in two short columns instead. Text
- * hints are reduced, but no action or setting is removed.
+ * Desktop and laptop workspace: one readable, scrollable rail. Keeping the
+ * panel as a single column prevents the controls from collapsing into two
+ * narrow mini-panels at 900x650 and at low heights.
  */
-@media (min-width: 841px) and (max-width: 1280px),
-       (min-width: 841px) and (max-width: 1699px) and (max-height: 900px) {
+@media (min-width: 841px) and (max-width: 1699px),
+       (min-width: 1700px) and (max-height: 759px) {
     #main-content {
-        display: grid;
-        grid-template-columns: minmax(280px, 1fr) clamp(500px, 42vw, 660px);
-        gap: 8px;
-        padding: 7px 8px;
+        display: flex;
+        gap: 10px;
+        padding: 8px 10px;
     }
 
     #board-area {
-        width: 100%;
+        width: auto;
         min-width: 0;
     }
 
     #panel {
-        width: auto;
+        width: clamp(340px, 44vw, 430px);
         max-height: 100%;
-        display: grid;
-        flex-basis: auto;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        grid-template-rows: auto auto minmax(70px, 1fr) auto;
-        grid-template-areas:
-            "mode action"
-            "live action"
-            "analysis pv"
-            "analysis settings";
-        gap: 6px;
-        padding-right: 6px;
+        display: flex;
+        flex: 0 0 clamp(340px, 44vw, 430px);
+        flex-direction: column;
+        gap: 7px;
+        padding-right: 4px;
         overflow-x: hidden;
         overflow-y: auto;
     }
 
-    .mode-card {
-        grid-area: mode;
-    }
-
-    .action-card {
-        grid-area: action;
-    }
-
-    .live-review-card {
-        grid-area: live;
-    }
-
-    .analysis-card {
-        grid-area: analysis;
-        display: flex;
-        min-height: 0;
-        flex-direction: column;
-        overflow: hidden;
-    }
-
-    .pv-card {
-        grid-area: pv;
-        min-height: 0;
-        overflow-y: auto;
-    }
-
-    .settings-card {
-        grid-area: settings;
-    }
-
     .panel-section {
         min-width: 0;
-        min-height: 0;
-        align-self: stretch;
-        padding: 10px;
-        border-radius: 15px;
+        flex: 0 0 auto;
     }
 
     .settings-card {
         padding: 0;
-    }
-
-    .section-heading {
-        gap: 6px;
-        margin-bottom: 6px;
-    }
-
-    .section-heading h2,
-    .live-review-card h2 {
-        font-size: clamp(16px, 1.1vw, 18px);
-    }
-
-    .eyebrow {
-        font-size: clamp(9px, 0.62vw, 10px);
-    }
-
-    .mode-buttons {
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-        gap: 5px;
-    }
-
-    .mode-btn:first-child {
-        grid-column: auto;
-    }
-
-    .mode-btn {
-        min-height: 62px;
-        flex-direction: column;
-        justify-content: center;
-        gap: 3px;
-        padding: 5px 3px;
-        text-align: center;
-    }
-
-    .mode-btn small,
-    .import-button small,
-    .ai-actions small,
-    .live-review-copy p,
-    .live-turn-control small,
-    .settings-note {
-        display: none;
-    }
-
-    .mode-symbol {
-        width: 25px;
-        height: 25px;
-        flex-basis: 25px;
-    }
-
-    .mode-btn b,
-    .import-button b,
-    .ai-actions b {
-        font-size: clamp(13px, 0.86vw, 14px);
-    }
-
-    .import-button {
-        min-height: 50px;
-        grid-template-columns: 26px 1fr auto;
-        gap: 6px;
-        margin-bottom: 5px;
-        padding: 6px 8px;
-    }
-
-    .button-icon {
-        width: 26px;
-        height: 26px;
-        font-size: 15px;
-    }
-
-    .button-arrow {
-        font-size: 18px;
-    }
-
-    .import-quick-actions {
-        gap: 5px;
-        margin-bottom: 4px;
-    }
-
-    .import-quick-actions button {
-        min-height: 34px;
-        gap: 3px;
-        padding: 0 4px;
-        font-size: clamp(11px, 0.75vw, 12px);
-    }
-
-    .paste-hint {
-        display: none;
-    }
-
-    .action-buttons {
-        gap: 5px;
-    }
-
-    .action-buttons button {
-        min-height: 43px;
-        padding: 4px 2px;
-        border-radius: 11px;
-        font-size: clamp(12px, 0.8vw, 13px);
-    }
-
-    .action-buttons button > span:first-child {
-        font-size: 16px;
-    }
-
-    .ai-actions {
-        gap: 5px;
-        margin-top: 5px;
-    }
-
-    .ai-actions button {
-        min-height: 48px;
-        gap: 5px;
-        padding: 5px 7px;
-        border-radius: 11px;
-    }
-
-    .ai-actions .button-icon {
-        width: 24px;
-        height: 24px;
-        flex-basis: 24px;
-    }
-
-    .live-review-copy {
-        gap: 7px;
-    }
-
-    .live-icon {
-        width: 30px;
-        height: 30px;
-        flex-basis: 30px;
-        font-size: 17px;
-    }
-
-    .live-review-footer {
-        gap: 6px;
-        margin-top: 6px;
-        padding-top: 6px;
-    }
-
-    .live-toggle {
-        min-height: 36px;
-        padding: 0 9px;
-        border-radius: 10px;
-        font-size: clamp(12px, 0.8vw, 13px);
-    }
-
-    .live-turn-control {
-        grid-template-columns: auto minmax(82px, 1fr);
-        gap: 5px;
-        margin-top: 6px;
-        padding-top: 6px;
-    }
-
-    .live-turn-control select {
-        min-height: 30px;
-        font-size: 11px;
-    }
-
-    #suggestions-list {
-        min-height: 0;
-        max-height: none;
-        flex: 1 1 auto;
-    }
-
-    .suggestion-item {
-        min-height: 36px;
-        padding: 5px;
-        font-size: clamp(11px, 0.75vw, 13px);
-    }
-
-    .suggestion-item .visits-count {
-        display: none;
-    }
-
-    .suggestion-item .move-name {
-        width: 32px;
-        flex-basis: 32px;
-    }
-
-    .suggestion-item .score-abs {
-        width: 36px;
-        flex-basis: 36px;
-    }
-
-    .suggestion-item .wr {
-        width: 38px;
-        flex-basis: 38px;
-    }
-
-    #pv-display {
-        max-height: 80px;
-        overflow-y: auto;
-        font-size: 11px;
-        line-height: 1.45;
-    }
-
-    .section-toggle {
-        min-height: 38px;
-        padding: 0 10px;
-        font-size: clamp(12px, 0.78vw, 13px);
-    }
-
-    .section-body {
-        padding: 0 10px 8px;
-    }
-
-    .setting-row {
-        min-height: 36px;
-        gap: 6px;
-        font-size: clamp(12px, 0.78vw, 13px);
-    }
-
-    .setting-row select {
-        min-height: 30px;
-        padding-left: 7px;
-        font-size: 11px;
     }
 }
 

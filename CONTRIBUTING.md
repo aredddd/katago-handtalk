@@ -16,7 +16,7 @@ Python 测试环境：
 
 ```powershell
 python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
+.\.venv\Scripts\python.exe -m pip install --require-hashes -r requirements-dev.lock.txt
 ```
 
 运行测试：

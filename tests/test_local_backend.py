@@ -165,7 +165,37 @@ def test_status_exposes_stable_desktop_service_marker(local_app):
     payload = response.get_json()
     assert payload["app"] == "katago-web-beginner"
     assert payload["api_version"] == 1
+    assert payload["version"] == "0.1.0-beta.1"
+    assert "session_token" in payload
     assert payload["running"] is True
+
+
+def test_config_reports_optional_recognition_as_a_capability():
+    app, _ = create_app(
+        engine=FakeEngine(),
+        recognizer=lambda *_args: {},
+        recognizer_available=False,
+    )
+    app.config.update(TESTING=True)
+    client = app.test_client()
+
+    config = client.get("/api/config").get_json()
+    assert config["version"] == "0.1.0-beta.1"
+    assert config["capabilities"]["recognition"]["available"] is False
+    assert config["capabilities"]["live_review"]["available"] is False
+
+    unavailable = client.post(
+        "/api/recognize",
+        data={
+            "boardSize": "19",
+            "image": (io.BytesIO(b"fake-image"), "board.png"),
+        },
+        content_type="multipart/form-data",
+    )
+    assert unavailable.status_code == 503
+    assert unavailable.get_json()["reason"] in {
+        "disabled", "dependencies_missing", "models_missing", "unavailable"
+    }
 
 
 def test_recognition_rejects_missing_or_invalid_upload(local_app):
@@ -183,6 +213,51 @@ def test_recognition_rejects_missing_or_invalid_upload(local_app):
     )
     assert response.status_code == 400
     assert response.get_json()["error"] == "Invalid boardSize"
+
+
+def test_recognition_queue_is_bounded_to_one_in_flight_request():
+    entered = threading.Event()
+    release = threading.Event()
+
+    def blocking_recognizer(_image, _size):
+        entered.set()
+        release.wait(timeout=5)
+        return {"board": [[0] * 19 for _ in range(19)]}
+
+    app, _ = create_app(
+        engine=FakeEngine(),
+        recognizer=blocking_recognizer,
+        recognizer_available=True,
+    )
+    app.config.update(TESTING=True)
+    first_response = []
+
+    def run_first():
+        first_response.append(app.test_client().post(
+            "/api/recognize",
+            data={
+                "boardSize": "19",
+                "image": (io.BytesIO(b"first"), "first.png"),
+            },
+            content_type="multipart/form-data",
+        ))
+
+    worker = threading.Thread(target=run_first)
+    worker.start()
+    assert entered.wait(timeout=2)
+    busy = app.test_client().post(
+        "/api/recognize",
+        data={
+            "boardSize": "19",
+            "image": (io.BytesIO(b"second"), "second.png"),
+        },
+        content_type="multipart/form-data",
+    )
+    assert busy.status_code == 409
+    assert busy.get_json()["reason"] == "busy"
+    release.set()
+    worker.join(timeout=5)
+    assert first_response[0].status_code == 200
 
 
 @pytest.mark.parametrize("board_size", ["13", "0", "100000"])

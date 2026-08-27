@@ -12,9 +12,11 @@ from __future__ import annotations
 import argparse
 import base64
 import ctypes
+import hashlib
 import json
 import logging
 import os
+import secrets
 import signal
 import socket
 import subprocess
@@ -34,11 +36,12 @@ APP_NAME = "KataGoHandTalk"
 APP_TITLE = "KataGo 手谈"
 SERVICE_APP_ID = "katago-web-beginner"
 SERVICE_API_VERSION = 1
-RUNTIME_HEALTH_SCHEMA = 1
+RUNTIME_HEALTH_SCHEMA = 2
 PREFERENCES_SCHEMA = 1
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 5000
 DEFAULT_STARTUP_TIMEOUT = 240.0
+RUNTIME_SETTINGS_SCHEMA = 1
 MUTEX_NAME = r"Local\KataGoHandTalk.Desktop.v1"
 APPCOMPAT_LAYERS_KEY = (
     r"Software\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers"
@@ -52,6 +55,19 @@ CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
 CREATE_NEW_PROCESS_GROUP = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200)
 
 LOGGER = logging.getLogger("katago_handtalk.desktop")
+
+
+def _read_app_version() -> str:
+    candidates = [Path(__file__).resolve().parent / "VERSION"]
+    candidates.extend(base / "app" / "VERSION" for base in _candidate_bases())
+    for path in candidates:
+        try:
+            version = path.read_text(encoding="utf-8").strip()
+        except OSError:
+            continue
+        if version:
+            return version
+    return "0.0.0-dev"
 
 
 class LauncherError(RuntimeError):
@@ -92,6 +108,9 @@ def _candidate_bases() -> list[Path]:
     add(Path(__file__).parent)
     add(Path.cwd())
     return result
+
+
+APP_VERSION = _read_app_version()
 
 
 def resolve_project_root(explicit: str | os.PathLike[str] | None = None) -> Path:
@@ -314,20 +333,29 @@ def apply_window_topmost(window: Any, enabled: bool) -> None:
     window.on_top = enabled
 
 
-def is_reusable_status(payload: object) -> bool:
-    """Return whether an ``/api/status`` payload belongs to this application."""
+def is_reusable_status(payload: object, expected_token: str | None = None) -> bool:
+    """Return whether status belongs to the exact server started this launch.
+
+    The token is intentionally required. App/version markers alone only
+    identify compatible JSON and are not authority to expose the native
+    pywebview bridge to that page.
+    """
     if not isinstance(payload, Mapping):
         return False
-    if payload.get("app") == SERVICE_APP_ID:
-        version = payload.get("api_version")
-        return version in (SERVICE_API_VERSION, str(SERVICE_API_VERSION))
-    # Compatibility with builds made before the explicit marker was added.
-    return all(key in payload for key in ("running", "katago_path", "model_path"))
+    if not expected_token:
+        return False
+    version = payload.get("api_version")
+    return (
+        payload.get("app") == SERVICE_APP_ID
+        and version in (SERVICE_API_VERSION, str(SERVICE_API_VERSION))
+        and secrets.compare_digest(str(payload.get("session_token", "")), expected_token)
+    )
 
 
 def probe_service(
     port: int,
     *,
+    expected_token: str,
     host: str = DEFAULT_HOST,
     timeout: float = 0.6,
     opener: Callable[..., Any] = urllib.request.urlopen,
@@ -343,7 +371,7 @@ def probe_service(
         payload = json.loads(raw.decode("utf-8"))
     except (OSError, ValueError, UnicodeError, urllib.error.URLError):
         return None
-    return dict(payload) if is_reusable_status(payload) else None
+    return dict(payload) if is_reusable_status(payload, expected_token) else None
 
 
 def is_port_available(port: int, *, host: str = DEFAULT_HOST) -> bool:
@@ -380,22 +408,13 @@ class ServiceSelection:
 def select_service(
     preferred_port: int = DEFAULT_PORT,
     *,
-    probe: Callable[[int], dict[str, Any] | None] = probe_service,
     port_available: Callable[[int], bool] = is_port_available,
     free_port: Callable[[], int] = find_free_port,
 ) -> ServiceSelection:
-    """Reuse our service on the preferred port, otherwise choose a safe port.
-
-    A newly started desktop service deliberately uses an ephemeral port even
-    when the browser edition's conventional port is free.  This prevents an
-    old browser tab (especially a still-active live-review tab) from silently
-    reconnecting to the desktop process and consuming GPU resources.
-    """
-    status = probe(preferred_port)
-    if status is not None and bool(status.get("running")):
-        return ServiceSelection(preferred_port, True, status)
-    # Keep this probe for callers/tests that supply a stricter availability
-    # check, but never expose a new desktop instance on the browser port.
+    """Choose an isolated ephemeral port for this desktop-owned server."""
+    # Never reuse a localhost HTTP process: the application page receives a
+    # native clipboard/screenshot bridge. The random launch token is verified
+    # after our child starts and before navigation.
     port_available(preferred_port)
     return ServiceSelection(free_port(), False)
 
@@ -426,56 +445,239 @@ def _find_resource_dir(project_root: Path, name: str, required: Sequence[str]) -
 
 
 @dataclass(frozen=True)
+class RuntimeSettings:
+    katago: Path
+    model: Path
+    config: Path
+    vision_enabled: bool = False
+    board_model: Path | None = None
+    stone_model: Path | None = None
+    vision_backend: str = "auto"
+
+    def to_json(self) -> dict[str, Any]:
+        return {
+            "schema": RUNTIME_SETTINGS_SCHEMA,
+            "katago_path": str(self.katago),
+            "model_path": str(self.model),
+            "config_path": str(self.config),
+            "vision_enabled": self.vision_enabled,
+            "board_model_path": str(self.board_model or ""),
+            "stone_model_path": str(self.stone_model or ""),
+            "vision_backend": self.vision_backend,
+        }
+
+
+class RuntimeConfigurationRequired(LauncherError):
+    def __init__(self, settings: RuntimeSettings, missing: Sequence[Path]) -> None:
+        self.settings = settings
+        self.missing = tuple(missing)
+        details = "\n".join(f"  - {path}" for path in self.missing)
+        super().__init__(f"需要配置运行文件：\n{details}")
+
+
+@dataclass(frozen=True)
 class RuntimePaths:
     project_root: Path
     python: Path
     katago: Path
     model: Path
     config: Path
-    board_model: Path
-    stone_model: Path
+    vision_enabled: bool
+    board_model: Path | None
+    stone_model: Path | None
+    vision_backend: str
+
+
+def runtime_data_root() -> Path:
+    configured = os.environ.get("KATAGO_HANDTALK_RUNTIME_ROOT")
+    return (
+        Path(configured).expanduser().resolve()
+        if configured
+        else local_app_data_root() / "runtime"
+    )
 
 
 def find_venv_python(project_root: Path) -> Path | None:
-    scripts = project_root / ".venv" / "Scripts"
-    for name in ("pythonw.exe", "python.exe"):
-        candidate = scripts / name
-        if candidate.is_file():
-            return candidate.resolve()
+    roots = [project_root / ".venv", runtime_data_root() / "venv"]
+    configured = os.environ.get("KATAGO_HANDTALK_VENV")
+    if configured:
+        roots.insert(0, Path(configured).expanduser())
+    for root in roots:
+        scripts = root / "Scripts"
+        for name in ("pythonw.exe", "python.exe"):
+            candidate = scripts / name
+            if candidate.is_file():
+                return candidate.resolve()
     return None
 
 
-def resolve_runtime_paths(project_root: Path, *, require_python: bool = True) -> RuntimePaths:
-    """Resolve the same engine/model/config layout as ``start-local.ps1``."""
+def _first_path(values: Sequence[Path]) -> Path:
+    for value in values:
+        if value.is_file():
+            return value.resolve()
+    return values[0].resolve()
+
+
+def _network_candidates(project_root: Path, katago: Path) -> list[Path]:
+    roots = [katago.parent / "models", katago.parent]
+    for base in _resource_bases(project_root):
+        roots.extend((base / "KataGo" / "models", base / "models"))
+    candidates: list[Path] = []
+    patterns = ("*.bin.gz", "*.txt.gz", "*.onnx")
+    for root in roots:
+        for pattern in patterns:
+            try:
+                candidates.extend(path.resolve() for path in root.glob(pattern) if path.is_file())
+            except OSError:
+                continue
+    return sorted(dict.fromkeys(candidates), key=lambda path: path.name.casefold())
+
+
+def load_runtime_settings(settings_file: Path) -> RuntimeSettings | None:
+    try:
+        payload = json.loads(settings_file.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return None
+    if not isinstance(payload, Mapping) or payload.get("schema") != RUNTIME_SETTINGS_SCHEMA:
+        return None
+
+    def path_value(key: str) -> Path | None:
+        value = payload.get(key)
+        return Path(str(value)).expanduser().resolve() if value else None
+
+    katago = path_value("katago_path")
+    model = path_value("model_path")
+    config = path_value("config_path")
+    if katago is None or model is None or config is None:
+        return None
+    backend = str(payload.get("vision_backend", "auto")).lower()
+    if backend not in {"auto", "cuda", "cpu"}:
+        backend = "auto"
+    return RuntimeSettings(
+        katago=katago,
+        model=model,
+        config=config,
+        vision_enabled=payload.get("vision_enabled") is True,
+        board_model=path_value("board_model_path"),
+        stone_model=path_value("stone_model_path"),
+        vision_backend=backend,
+    )
+
+
+def save_runtime_settings(settings_file: Path, settings: RuntimeSettings) -> None:
+    settings_file.parent.mkdir(parents=True, exist_ok=True)
+    temporary = settings_file.with_suffix(settings_file.suffix + ".tmp")
+    temporary.write_text(
+        json.dumps(settings.to_json(), ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    os.replace(temporary, settings_file)
+
+
+def discover_runtime_settings(
+    project_root: Path,
+    settings_file: Path | None = None,
+) -> RuntimeSettings:
     project_root = project_root.resolve()
+    saved = load_runtime_settings(settings_file) if settings_file else None
+
+    katago_env = os.environ.get("KATAGO_PATH")
+    katago_candidates = []
+    if katago_env:
+        katago_candidates.append(Path(katago_env).expanduser())
+    if saved:
+        katago_candidates.append(saved.katago)
+    katago_candidates.extend(base / "KataGo" / "katago.exe" for base in _resource_bases(project_root))
+    katago_candidates.extend(base / "katago.exe" for base in _resource_bases(project_root))
+    katago = _first_path(katago_candidates)
+
+    model_env = os.environ.get("KATAGO_MODEL")
+    model_candidates = []
+    if model_env:
+        model_candidates.append(Path(model_env).expanduser())
+    if saved:
+        model_candidates.append(saved.model)
+    model_candidates.extend(_network_candidates(project_root, katago))
+    if not model_candidates:
+        model_candidates.append(katago.parent / "models" / "KataGo-network.bin.gz")
+    model = _first_path(model_candidates)
+
+    config_env = os.environ.get("KATAGO_CONFIG")
+    config_candidates = []
+    if config_env:
+        config_candidates.append(Path(config_env).expanduser())
+    if saved:
+        config_candidates.append(saved.config)
+    config_candidates.append(project_root / "config" / "default_analysis.cfg")
+    config = _first_path(config_candidates)
+
+    preferred_board = project_root / "models" / "vision" / "board.pth"
+    preferred_stone = project_root / "models" / "vision" / "stone.pth"
+    legacy_board = project_root / "models" / "image2sgf" / "board.pth"
+    legacy_stone = project_root / "models" / "image2sgf" / "stone.pth"
+    if preferred_board.is_file() and preferred_stone.is_file():
+        default_board, default_stone = preferred_board, preferred_stone
+    elif legacy_board.is_file() and legacy_stone.is_file():
+        default_board, default_stone = legacy_board, legacy_stone
+    else:
+        default_board, default_stone = preferred_board, preferred_stone
+    board = Path(os.environ["KATAGO_VISION_BOARD_MODEL"]).expanduser() if os.environ.get("KATAGO_VISION_BOARD_MODEL") else (saved.board_model if saved else default_board)
+    stone = Path(os.environ["KATAGO_VISION_STONE_MODEL"]).expanduser() if os.environ.get("KATAGO_VISION_STONE_MODEL") else (saved.stone_model if saved else default_stone)
+    vision_env = os.environ.get("KATAGO_VISION_ENABLED")
+    if vision_env is not None:
+        vision_enabled = vision_env.strip().lower() in {"1", "true", "yes", "on"}
+    elif saved:
+        vision_enabled = saved.vision_enabled
+    else:
+        vision_enabled = bool(board and stone and board.is_file() and stone.is_file())
+    backend = saved.vision_backend if saved else "auto"
+    return RuntimeSettings(
+        katago=katago.resolve(),
+        model=model.resolve(),
+        config=config.resolve(),
+        vision_enabled=vision_enabled,
+        board_model=board.resolve() if board else None,
+        stone_model=stone.resolve() if stone else None,
+        vision_backend=backend,
+    )
+
+
+def resolve_runtime_paths(
+    project_root: Path,
+    *,
+    require_python: bool = True,
+    settings_file: Path | None = None,
+    settings: RuntimeSettings | None = None,
+) -> RuntimePaths:
+    """Resolve configured resources; screenshot recognition is optional."""
+    project_root = project_root.resolve()
+    selected = settings or discover_runtime_settings(project_root, settings_file)
     python = find_venv_python(project_root)
     if python is None:
-        # Keep a stable expected path for diagnostics and pre-setup callers.
-        python = project_root / ".venv" / "Scripts" / "python.exe"
-
-    katago_root = _find_resource_dir(
-        project_root,
-        "KataGo",
-        ("katago.exe", "models/kata1-tf2-b10c384-s2941M-d5872M.bin.gz"),
-    )
-    katrain_root = _find_resource_dir(project_root, "KaTrain", ("analysis_5060.cfg",))
+        python = runtime_data_root() / "venv" / "Scripts" / "python.exe"
     paths = RuntimePaths(
         project_root=project_root,
         python=python,
-        katago=katago_root / "katago.exe",
-        model=katago_root / "models" / "kata1-tf2-b10c384-s2941M-d5872M.bin.gz",
-        config=katrain_root / "analysis_5060.cfg",
-        board_model=project_root / "models" / "image2sgf" / "board.pth",
-        stone_model=project_root / "models" / "image2sgf" / "stone.pth",
+        katago=selected.katago,
+        model=selected.model,
+        config=selected.config,
+        vision_enabled=selected.vision_enabled,
+        board_model=selected.board_model,
+        stone_model=selected.stone_model,
+        vision_backend=selected.vision_backend,
     )
-
-    required = [paths.katago, paths.model, paths.config, paths.board_model, paths.stone_model]
+    required: list[Path] = [paths.katago, paths.model, paths.config]
     if require_python:
         required.insert(0, paths.python)
+    if paths.vision_enabled:
+        required.extend(path for path in (paths.board_model, paths.stone_model) if path is not None)
+        if paths.board_model is None:
+            required.append(project_root / "models" / "vision" / "board.pth")
+        if paths.stone_model is None:
+            required.append(project_root / "models" / "vision" / "stone.pth")
     missing = [path for path in required if not path.is_file()]
     if missing:
-        details = "\n".join(f"  - {path}" for path in missing)
-        raise LauncherError(f"缺少运行文件：\n{details}")
+        raise RuntimeConfigurationRequired(selected, missing)
     return paths
 
 
@@ -484,6 +686,7 @@ def build_server_environment(
     port: int,
     *,
     base: Mapping[str, str] | None = None,
+    session_token: str = "",
 ) -> dict[str, str]:
     """Build the environment set by ``start-local.ps1 -NoBrowser``."""
     env = dict(os.environ if base is None else base)
@@ -492,14 +695,22 @@ def build_server_environment(
             "KATAGO_PATH": str(paths.katago),
             "KATAGO_MODEL": str(paths.model),
             "KATAGO_CONFIG": str(paths.config),
+            "KATAGO_WORK_DIR": str(runtime_data_root() / "katago-work"),
             "PORT": str(port),
             "DEFAULT_LANGUAGE": "zh",
             "DEFAULT_MAX_VISITS": "1000",
             "PYTHONUTF8": "1",
             "PYTHONUNBUFFERED": "1",
             "KATAGO_WEB_NO_BROWSER": "1",
+            "KATAGO_VISION_ENABLED": "1" if paths.vision_enabled else "0",
+            "KATAGO_HANDTALK_DESKTOP": "1",
         }
     )
+    if session_token:
+        env["KATAGO_HANDTALK_SESSION_TOKEN"] = session_token
+    if paths.vision_enabled and paths.board_model and paths.stone_model:
+        env["KATAGO_VISION_BOARD_MODEL"] = str(paths.board_model)
+        env["KATAGO_VISION_STONE_MODEL"] = str(paths.stone_model)
     return env
 
 
@@ -699,31 +910,70 @@ STARTUP_HTML = r"""<!doctype html>
 <title>KataGo 手谈</title>
 <style>
 :root{color-scheme:dark;font-family:"Segoe UI","Microsoft YaHei UI",sans-serif}
-*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;
+*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:12px;
 background:radial-gradient(circle at 25% 12%,#2f5a4d 0,#172821 34%,#0d1512 75%);color:#f4f1e9}
-.card{width:min(620px,calc(100vw - 40px));padding:38px;border:1px solid #ffffff1c;
-border-radius:22px;background:#101b17e8;box-shadow:0 24px 80px #0008;backdrop-filter:blur(12px)}
-.brand{display:flex;align-items:center;gap:15px}.stone{width:46px;height:46px;border-radius:50%;
-background:radial-gradient(circle at 32% 27%,#fff,#d8d8d8 45%,#777);box-shadow:0 8px 18px #0009}
-h1{font-size:25px;margin:0;font-weight:650;letter-spacing:.02em}.sub{margin:4px 0 0;color:#aebbb5;font-size:13px}
-.progress{height:5px;margin:30px 0 20px;border-radius:9px;background:#ffffff13;overflow:hidden}
+.card{width:min(760px,calc(100vw - 24px));max-height:calc(100vh - 24px);overflow:auto;padding:32px;
+border:1px solid #ffffff1c;border-radius:22px;background:#101b17ee;box-shadow:0 24px 80px #0008;
+backdrop-filter:blur(16px)}.brand{display:flex;align-items:center;gap:15px}.stone{width:46px;height:46px;
+border-radius:50%;background:radial-gradient(circle at 32% 27%,#fff,#d8d8d8 45%,#777);box-shadow:0 8px 18px #0009}
+h1{font-size:25px;margin:0;font-weight:650;letter-spacing:.02em}.sub{margin:4px 0 0;color:#bac6c0;font-size:13px}
+.progress{height:5px;margin:28px 0 20px;border-radius:9px;background:#ffffff13;overflow:hidden}
 .bar{height:100%;width:34%;border-radius:9px;background:#d8b36a;animation:move 1.35s ease-in-out infinite}
 @keyframes move{0%{transform:translateX(-110%)}100%{transform:translateX(310%)}}
-#title{font-size:16px;font-weight:600;margin-bottom:8px}#detail{min-height:48px;color:#aebbb5;
-line-height:1.6;font-size:13px;white-space:pre-wrap;word-break:break-word}.actions{display:none;gap:10px;margin-top:22px}
-button{border:0;border-radius:10px;padding:10px 16px;color:#172019;background:#d8b36a;font-weight:650;cursor:pointer}
-button.secondary{color:#dce5e0;background:#ffffff12}.error .bar{width:100%;animation:none;background:#db6d67}
-.error #title{color:#ffaaa4}.error .actions{display:flex}.ready .bar{width:100%;animation:none;background:#69bc8d}
+#title{font-size:18px;font-weight:650;margin-bottom:8px}#detail{min-height:48px;color:#bac6c0;line-height:1.6;
+font-size:13px;white-space:pre-wrap;word-break:break-word}.actions{display:none;gap:10px;margin-top:22px}
+button{min-height:44px;border:0;border-radius:11px;padding:10px 16px;color:#172019;background:#d8b36a;
+font:650 13px inherit;cursor:pointer}button.secondary{color:#e4ebe7;background:#ffffff12;border:1px solid #ffffff17}
+button:disabled{opacity:.55;cursor:wait}.error .bar{width:100%;animation:none;background:#db6d67}.error #title{color:#ffaaa4}
+.error .actions{display:flex}.ready .bar{width:100%;animation:none;background:#69bc8d}
+.setup{display:none;margin-top:16px}.configure .setup{display:block}.configure .progress{display:none}.configure #detail{min-height:0}
+.missing{margin:10px 0 16px;padding:10px 12px;border-radius:10px;background:#d4696415;color:#ffbbb5;font-size:12px;
+white-space:pre-wrap}.field{display:grid;grid-template-columns:145px minmax(0,1fr) 76px;align-items:center;gap:8px;margin:10px 0}
+.field label{font-size:13px;color:#dce5e0}.field input,.field select{width:100%;min-height:42px;border:1px solid #ffffff1c;
+border-radius:10px;padding:0 11px;color:#f4f1e9;background:#ffffff0d;font:13px inherit}.field button{min-height:42px;padding:8px}
+.vision-toggle{display:flex;align-items:center;gap:9px;margin:18px 0 8px;font-size:14px}.vision-toggle input{width:18px;height:18px}
+.vision-fields[hidden]{display:none}.setup-note{margin:6px 0;color:#aebbb5;font-size:12px;line-height:1.55}
+.setup-error{min-height:20px;margin-top:8px;color:#ffaaa4;font-size:12px;white-space:pre-wrap}.setup-footer{position:sticky;
+bottom:-32px;display:flex;justify-content:flex-end;gap:10px;margin:18px -32px -32px;padding:15px 32px;
+border-top:1px solid #ffffff12;background:#101b17f7;backdrop-filter:blur(14px)}
+@media(max-width:620px){.card{padding:22px}.field{grid-template-columns:1fr 72px}.field label{grid-column:1/-1}
+.setup-footer{bottom:-22px;margin:16px -22px -22px;padding:13px 22px}}
 </style></head><body><main class="card" id="card"><div class="brand"><div class="stone"></div><div>
 <h1>KataGo 手谈</h1><p class="sub">本地运行 · 自动连接 KataGo</p></div></div>
 <div class="progress"><div class="bar"></div></div><div id="title">正在准备…</div>
 <div id="detail">检查本地服务和运行环境</div><div class="actions">
-<button onclick="retry()">重试</button><button class="secondary" onclick="openLogs()">打开日志</button></div></main>
+<button onclick="retry()">重试</button><button class="secondary" onclick="configure()">修改配置</button><button class="secondary" onclick="openLogs()">打开日志</button></div>
+<section class="setup" id="setup"><div class="missing" id="missing" hidden></div>
+<div class="field"><label for="katago">KataGo 程序（必需）</label><input id="katago" autocomplete="off"><button onclick="browse('katago','katago')">选择</button></div>
+<div class="field"><label for="model">棋力网络（必需）</label><input id="model" autocomplete="off"><button onclick="browse('model','model')">选择</button></div>
+<div class="field"><label for="config">分析配置</label><input id="config" autocomplete="off"><button onclick="browse('config','config')">选择</button></div>
+<p class="setup-note">不确定配置怎么选时，保留自动填写的内置配置即可。</p>
+<label class="vision-toggle"><input id="vision" type="checkbox" onchange="toggleVision()"><span>启用截图识别（可选，首次安装较大）</span></label>
+<div class="vision-fields" id="vision-fields" hidden>
+<div class="field"><label for="board-model">棋盘定位模型</label><input id="board-model" autocomplete="off"><button onclick="browse('board_model','board-model')">选择</button></div>
+<div class="field"><label for="stone-model">棋子识别模型</label><input id="stone-model" autocomplete="off"><button onclick="browse('stone_model','stone-model')">选择</button></div>
+<div class="field"><label for="vision-backend">识图计算方式</label><select id="vision-backend"><option value="auto">自动选择</option><option value="cuda">NVIDIA CUDA</option><option value="cpu">CPU</option></select><span></span></div>
+</div><div class="setup-error" id="setup-error" role="alert"></div>
+<div class="setup-footer"><button class="secondary" onclick="openLogs()">打开日志</button><button id="save" onclick="saveConfig()">保存并启动</button></div>
+</section></main>
 <script>
-window.launcherSetState=function(s){const c=document.getElementById('card');c.classList.remove('error','ready');
-if(s.kind)c.classList.add(s.kind);document.getElementById('title').textContent=s.title||'正在准备…';
-document.getElementById('detail').textContent=s.detail||'';};
+const byId=id=>document.getElementById(id);
+window.launcherSetState=function(s){const c=byId('card');c.classList.remove('error','ready','working','configure');
+if(s.kind)c.classList.add(s.kind);byId('title').textContent=s.title||'正在准备…';byId('detail').textContent=s.detail||'';
+if(s.kind==='configure')renderConfig(s);};
+function renderConfig(s){const v=s.settings||{};byId('katago').value=v.katago_path||'';byId('model').value=v.model_path||'';
+byId('config').value=v.config_path||'';byId('vision').checked=!!v.vision_enabled;byId('board-model').value=v.board_model_path||'';
+byId('stone-model').value=v.stone_model_path||'';byId('vision-backend').value=v.vision_backend||'auto';toggleVision();
+const missing=(s.missing||[]);byId('missing').hidden=!missing.length;byId('missing').textContent=missing.length?'尚未找到：\n'+missing.join('\n'):'';}
+function toggleVision(){byId('vision-fields').hidden=!byId('vision').checked;}
+async function browse(kind,id){try{const value=await window.pywebview.api.choose_runtime_file(kind);if(value)byId(id).value=value;}catch(e){}}
+async function saveConfig(){const button=byId('save');button.disabled=true;byId('setup-error').textContent='';try{const result=await window.pywebview.api.save_runtime_config({
+katago_path:byId('katago').value,model_path:byId('model').value,config_path:byId('config').value,vision_enabled:byId('vision').checked,
+board_model_path:byId('board-model').value,stone_model_path:byId('stone-model').value,vision_backend:byId('vision-backend').value});
+if(!result||!result.ok){byId('setup-error').textContent=(result&&result.error)||'保存失败';button.disabled=false;}else{
+window.launcherSetState({kind:'working',title:'配置已保存',detail:'正在准备本地运行环境…'});}}catch(e){byId('setup-error').textContent=String(e);button.disabled=false;}}
 async function retry(){try{await window.pywebview.api.retry_startup()}catch(e){}}
+async function configure(){try{await window.pywebview.api.open_runtime_configuration()}catch(e){}}
 async function openLogs(){try{await window.pywebview.api.open_logs()}catch(e){}}
 </script></body></html>"""
 
@@ -744,6 +994,19 @@ class DesktopApi:
 
     def retry_startup(self) -> bool:
         return bool(self._launcher and self._launcher.retry())
+
+    def choose_runtime_file(self, kind: object) -> str | None:
+        if not self._launcher:
+            return None
+        return self._launcher.choose_runtime_file(kind)
+
+    def save_runtime_config(self, payload: object) -> dict[str, Any]:
+        if not self._launcher:
+            return {"ok": False, "error": "桌面启动器尚未准备好"}
+        return self._launcher.save_runtime_config(payload)
+
+    def open_runtime_configuration(self) -> bool:
+        return bool(self._launcher and self._launcher.open_runtime_configuration())
 
     def open_logs(self) -> bool:
         try:
@@ -886,7 +1149,9 @@ class DesktopLauncher:
         self._owned: OwnedProcess | None = None
         self._ready = False
         self._preferences_file = self.log_dir.parent / "preferences.json"
+        self._settings_file = self.log_dir.parent / "settings.json"
         self._always_on_top = load_always_on_top(self._preferences_file)
+        self._session_token = secrets.token_urlsafe(32)
         self._last_state: dict[str, str] = {
             "kind": "working",
             "title": "正在准备…",
@@ -932,6 +1197,103 @@ class DesktopLauncher:
         LOGGER.info("Always-on-top changed: %s", enabled)
         return enabled
 
+    def choose_runtime_file(self, kind: object) -> str | None:
+        """Open a native file picker for one allow-listed runtime resource."""
+        if not isinstance(kind, str) or self.window is None:
+            return None
+        filters = {
+            "katago": ("KataGo executable (*.exe)",),
+            "model": ("KataGo networks (*.bin.gz;*.txt.gz;*.onnx)",),
+            "config": ("KataGo configuration (*.cfg)",),
+            "board_model": ("PyTorch model (*.pth)",),
+            "stone_model": ("PyTorch model (*.pth)",),
+        }
+        file_types = filters.get(kind)
+        if file_types is None:
+            LOGGER.warning("Rejected unknown runtime file picker kind: %r", kind)
+            return None
+        try:
+            selected = self.window.create_file_dialog(file_types=file_types)
+        except Exception:
+            LOGGER.exception("Runtime file picker failed for %s", kind)
+            return None
+        if not selected:
+            return None
+        return str(Path(selected[0]).expanduser().resolve())
+
+    def save_runtime_config(self, payload: object) -> dict[str, Any]:
+        """Validate and atomically save settings submitted by the launch page."""
+        if not isinstance(payload, Mapping):
+            return {"ok": False, "error": "配置格式无效"}
+
+        def selected_path(key: str, fallback: Path | None = None) -> Path | None:
+            raw = payload.get(key)
+            if not isinstance(raw, str) or not raw.strip():
+                return fallback
+            return Path(raw.strip()).expanduser().resolve()
+
+        try:
+            fallback = discover_runtime_settings(self.project_root, self._settings_file)
+            backend = str(payload.get("vision_backend", "auto")).lower()
+            if backend not in {"auto", "cuda", "cpu"}:
+                backend = "auto"
+            settings = RuntimeSettings(
+                katago=selected_path("katago_path", fallback.katago) or fallback.katago,
+                model=selected_path("model_path", fallback.model) or fallback.model,
+                config=(
+                    selected_path(
+                        "config_path",
+                        self.project_root / "config" / "default_analysis.cfg",
+                    )
+                    or self.project_root / "config" / "default_analysis.cfg"
+                ),
+                vision_enabled=payload.get("vision_enabled") is True,
+                board_model=selected_path("board_model_path", fallback.board_model),
+                stone_model=selected_path("stone_model_path", fallback.stone_model),
+                vision_backend=backend,
+            )
+            resolve_runtime_paths(
+                self.project_root,
+                require_python=False,
+                settings=settings,
+            )
+            save_runtime_settings(self._settings_file, settings)
+        except (OSError, ValueError, RuntimeConfigurationRequired) as exc:
+            return {"ok": False, "error": str(exc)}
+
+        self._needs_setup = True
+        LOGGER.info("Runtime configuration saved: %s", self._settings_file)
+        started = self.retry()
+        return {"ok": True, "starting": started}
+
+    def open_runtime_configuration(self) -> bool:
+        """Stop our server and return the trusted shell to its config page."""
+        window = self.window
+        if window is None:
+            return False
+        self._cleanup_owned()
+        with self._lock:
+            self._ready = False
+            self._session_token = secrets.token_urlsafe(32)
+        try:
+            window.load_html(STARTUP_HTML)
+        except Exception:
+            LOGGER.exception("Could not reopen runtime configuration")
+            return False
+
+        def show_configuration() -> None:
+            settings = discover_runtime_settings(self.project_root, self._settings_file)
+            self._set_state(
+                "configure",
+                "运行资源配置",
+                "保存后会重新启动本地服务。截图识别可以随时关闭。",
+                settings=settings.to_json(),
+                missing=[],
+            )
+
+        threading.Timer(0.45, show_configuration).start()
+        return True
+
     def expose_native_api(self) -> None:
         """Register the small native bridge allowlist before WebView startup.
 
@@ -947,6 +1309,9 @@ class DesktopLauncher:
         try:
             window.expose(
                 self.api.retry_startup,
+                self.api.choose_runtime_file,
+                self.api.save_runtime_config,
+                self.api.open_runtime_configuration,
                 self.api.open_logs,
                 self.api.open_snipping_tool,
                 self.api.read_clipboard_image,
@@ -983,8 +1348,14 @@ class DesktopLauncher:
         self._stop_event.set()
         self._cleanup_owned()
 
-    def _set_state(self, kind: str, title: str, detail: str = "") -> None:
-        state = {"kind": kind, "title": title, "detail": detail}
+    def _set_state(
+        self,
+        kind: str,
+        title: str,
+        detail: str = "",
+        **extra: object,
+    ) -> None:
+        state = {"kind": kind, "title": title, "detail": detail, **extra}
         self._last_state = state
         window = self.window
         if window is None:
@@ -998,33 +1369,48 @@ class DesktopLauncher:
 
     def _startup_worker(self) -> None:
         try:
-            self._set_state("working", "正在检查本地服务…", "连接 127.0.0.1")
-            selection = select_service(self.preferred_port)
-            if selection.reused:
-                LOGGER.info("Reusing service at %s", selection.url)
-                self._show_application(selection.url, reused=True)
+            self._set_state("working", "正在检查运行配置…", "自动查找 KataGo 和棋力网络")
+            settings = discover_runtime_settings(self.project_root, self._settings_file)
+            try:
+                resolve_runtime_paths(
+                    self.project_root,
+                    require_python=False,
+                    settings=settings,
+                )
+            except RuntimeConfigurationRequired as exc:
+                self._set_state(
+                    "configure",
+                    "完成首次配置",
+                    "KataGo 和棋力网络是必需项；截图识别可以稍后再开。",
+                    settings=exc.settings.to_json(),
+                    missing=[str(path) for path in exc.missing],
+                )
                 return
 
-            self._ensure_runtime()
+            self._ensure_runtime(settings)
             self._check_cancelled()
-
-            # Setup can take a while.  Re-check so a service started meanwhile
-            # is reused and so we do not assume the earlier port is still free.
             selection = select_service(self.preferred_port)
-            if selection.reused:
-                LOGGER.info("Reusing service that appeared during setup at %s", selection.url)
-                self._show_application(selection.url, reused=True)
-                return
-
-            paths = resolve_runtime_paths(self.project_root)
-            env = build_server_environment(paths, selection.port)
+            paths = resolve_runtime_paths(
+                self.project_root,
+                settings_file=self._settings_file,
+                settings=settings,
+            )
+            env = build_server_environment(
+                paths,
+                selection.port,
+                session_token=self._session_token,
+            )
             self._set_state(
                 "working",
                 "正在启动 KataGo…",
                 f"本地服务端口 {selection.port}，首次载入模型可能需要一点时间",
             )
             process = self._start_server(paths, env)
-            status = self._wait_until_ready(selection.port, process)
+            status = self._wait_until_ready(
+                selection.port,
+                process,
+                self._session_token,
+            )
             LOGGER.info("Service ready on port %s: %s", selection.port, status)
             self._show_application(selection.url, reused=False)
         except StartupCancelled:
@@ -1048,10 +1434,10 @@ class DesktopLauncher:
         if self._stop_event.is_set():
             raise StartupCancelled("窗口已关闭")
 
-    def _ensure_runtime(self) -> None:
+    def _ensure_runtime(self, settings: RuntimeSettings) -> None:
         python = find_venv_python(self.project_root)
         if not self._needs_setup and python is not None:
-            if self._runtime_is_healthy(python):
+            if self._runtime_is_healthy(python, settings.vision_enabled, settings.vision_backend):
                 return
             LOGGER.warning("Existing local runtime failed its import smoke test; repairing it")
             self._needs_setup = True
@@ -1073,6 +1459,16 @@ class DesktopLauncher:
             "Bypass",
             "-File",
             str(setup_script),
+            "-RuntimeRoot",
+            str(runtime_data_root()),
+            "-VenvRoot",
+            str(runtime_data_root() / "venv"),
+            "-VisionBackend",
+            (
+                "None"
+                if not settings.vision_enabled
+                else ("CUDA" if settings.vision_backend == "cuda" else "CPU" if settings.vision_backend == "cpu" else "Auto")
+            ),
         ]
         owned = self._spawn_owned(command, cwd=self.project_root, env=dict(os.environ))
         process = owned.process
@@ -1093,12 +1489,21 @@ class DesktopLauncher:
         python = find_venv_python(self.project_root)
         if python is None:
             raise LauncherError("安装脚本已结束，但未找到 .venv\\Scripts\\python.exe")
-        if not self._runtime_is_healthy(python):
+        if not self._runtime_is_healthy(
+            python,
+            settings.vision_enabled,
+            settings.vision_backend,
+        ):
             raise LauncherError("本地环境安装已结束，但依赖自检仍未通过；请打开日志查看详情")
         self._needs_setup = False
         LOGGER.info("First-time setup completed")
 
-    def _runtime_is_healthy(self, python: Path) -> bool:
+    def _runtime_is_healthy(
+        self,
+        python: Path,
+        vision_enabled: bool = False,
+        vision_backend: str = "auto",
+    ) -> bool:
         """Verify the existing venv before trusting a partial prior setup.
 
         A failed first installation can leave ``python.exe`` behind even when
@@ -1106,8 +1511,12 @@ class DesktopLauncher:
         smoke test lets the normal setup script repair that state automatically
         instead of sending the user into a retry loop.
         """
-        fingerprint = self._runtime_fingerprint(python)
-        stamp_file = self.project_root / ".runtime" / "desktop-runtime-health.json"
+        fingerprint = self._runtime_fingerprint(
+            python,
+            vision_enabled,
+            vision_backend,
+        )
+        stamp_file = runtime_data_root() / "desktop-runtime-health.json"
         if fingerprint is not None:
             try:
                 cached = json.loads(stamp_file.read_text(encoding="utf-8"))
@@ -1120,15 +1529,55 @@ class DesktopLauncher:
         self._set_state(
             "working",
             "正在检查本地环境…",
-            "确认网页、截图识别和显卡运行库完整",
+            "确认网页运行库" + ("和截图识别组件完整" if vision_enabled else "完整"),
         )
         console_python = python.with_name("python.exe")
         if not console_python.is_file():
             console_python = python
+        core_versions = {
+            "flask": "3.1.3",
+            "flask-socketio": "5.6.1",
+            "simple-websocket": "1.1.0",
+        }
         code = (
-            "import cv2, flask, flask_socketio, simple_websocket, torch, torchvision; "
-            "assert torch.version.cuda is not None, 'CUDA PyTorch runtime is missing'"
+            "from importlib.metadata import version as _version; "
+            f"_expected={core_versions!r}; "
+            "assert all(_version(name) == wanted for name, wanted in _expected.items()), "
+            "'core dependency version mismatch'; "
+            "import flask, flask_socketio, simple_websocket"
         )
+        if vision_enabled:
+            vision_versions = {
+                "opencv-python-headless": "5.0.0.93",
+                "numpy": "2.4.6",
+                "Pillow": "12.3.0",
+            }
+            code += (
+                f"; _vision_expected={vision_versions!r}"
+                "; assert all(_version(name) == wanted for name, wanted in _vision_expected.items()), "
+                "'vision dependency version mismatch'"
+                "; import cv2, numpy, PIL, torch, torchvision"
+            )
+            if vision_backend == "cuda":
+                code += (
+                    "; assert _version('torch') == '2.11.0+cu128'"
+                    "; assert _version('torchvision') == '0.26.0+cu128'"
+                    "; assert torch.version.cuda is not None and torch.cuda.is_available(), "
+                    "'CUDA vision runtime is unavailable'"
+                )
+            elif vision_backend == "cpu":
+                code += (
+                    "; assert _version('torch') == '2.11.0+cpu'"
+                    "; assert _version('torchvision') == '0.26.0+cpu'"
+                    "; assert torch.version.cuda is None, 'CPU vision requires the CPU PyTorch wheel'"
+                )
+            else:
+                code += (
+                    "; assert _version('torch') in ('2.11.0+cpu', '2.11.0+cu128')"
+                    "; assert _version('torchvision') in ('0.26.0+cpu', '0.26.0+cu128')"
+                    "; assert _version('torch').split('+', 1)[1] == "
+                    "_version('torchvision').split('+', 1)[1]"
+                )
         owned: OwnedProcess | None = None
         try:
             owned = self._spawn_owned(
@@ -1172,34 +1621,67 @@ class DesktopLauncher:
             if owned is not None:
                 self._release_completed(owned)
 
-    def _runtime_fingerprint(self, python: Path) -> dict[str, Any] | None:
-        """Return a cheap dependency fingerprint for subsequent fast starts."""
+    def _runtime_fingerprint(
+        self,
+        python: Path,
+        vision_enabled: bool = False,
+        vision_backend: str = "auto",
+    ) -> dict[str, Any] | None:
+        """Return a content fingerprint for safe subsequent fast starts."""
         site_packages = python.parent.parent / "Lib" / "site-packages"
         anchors = [
             python.with_name("python.exe"),
             self.project_root / "requirements.txt",
+            self.project_root / "requirements.lock.txt",
             self.project_root / "setup-local.ps1",
             site_packages / "flask" / "__init__.py",
             site_packages / "flask_socketio" / "__init__.py",
             site_packages / "simple_websocket" / "__init__.py",
-            site_packages / "cv2" / "__init__.py",
-            site_packages / "torch" / "__init__.py",
-            site_packages / "torchvision" / "__init__.py",
-            site_packages / "torch" / "lib" / "torch_cuda.dll",
         ]
-        files: dict[str, dict[str, int]] = {}
+        if vision_enabled:
+            anchors.extend([
+                self.project_root / "requirements-vision.txt",
+                self.project_root / "requirements-vision.lock.txt",
+                self.project_root / "requirements-torch.txt",
+                site_packages / "cv2" / "__init__.py",
+                site_packages / "torch" / "__init__.py",
+                site_packages / "torchvision" / "__init__.py",
+            ])
+            if vision_backend == "cuda":
+                anchors.append(self.project_root / "requirements-torch-cuda.lock.txt")
+            elif vision_backend == "cpu":
+                anchors.append(self.project_root / "requirements-torch-cpu.lock.txt")
+            else:
+                # Auto can select either wheel flavor depending on the host.
+                anchors.extend([
+                    self.project_root / "requirements-torch-cuda.lock.txt",
+                    self.project_root / "requirements-torch-cpu.lock.txt",
+                ])
+        files: dict[str, dict[str, Any]] = {}
         try:
             for path in anchors:
                 stat = path.stat()
                 if not path.is_file():
                     return None
-                files[str(path.relative_to(self.project_root)).replace("\\", "/")] = {
-                    "size": stat.st_size,
-                    "mtime_ns": stat.st_mtime_ns,
-                }
+                key = (
+                    str(path.relative_to(self.project_root)).replace("\\", "/")
+                    if path.is_relative_to(self.project_root)
+                    else str(path.resolve())
+                )
+                digest = hashlib.sha256()
+                with path.open("rb") as stream:
+                    for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                        digest.update(chunk)
+                files[key] = {"size": stat.st_size, "sha256": digest.hexdigest()}
         except (OSError, ValueError):
             return None
-        return {"schema": RUNTIME_HEALTH_SCHEMA, "files": files}
+        return {
+            "schema": RUNTIME_HEALTH_SCHEMA,
+            "app_version": APP_VERSION,
+            "vision_enabled": vision_enabled,
+            "vision_backend": vision_backend if vision_enabled else "none",
+            "files": files,
+        }
 
     def _start_server(self, paths: RuntimePaths, env: Mapping[str, str]) -> subprocess.Popen[str]:
         command = [str(paths.python), str(self.project_root / "run-local.py")]
@@ -1268,6 +1750,7 @@ class DesktopLauncher:
         self,
         port: int,
         process: subprocess.Popen[str],
+        expected_token: str,
     ) -> dict[str, Any]:
         deadline = time.monotonic() + self.startup_timeout
         while time.monotonic() < deadline:
@@ -1275,7 +1758,7 @@ class DesktopLauncher:
             return_code = process.poll()
             if return_code is not None:
                 raise LauncherError(f"本地服务提前退出（退出代码 {return_code}）")
-            status = probe_service(port, timeout=0.8)
+            status = probe_service(port, expected_token=expected_token, timeout=0.8)
             if status is not None and bool(status.get("running", True)):
                 return status
             self._stop_event.wait(0.35)
@@ -1323,6 +1806,11 @@ def _show_native_error(message: str, title: str = APP_TITLE) -> None:
 
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="KataGo 手谈桌面启动器")
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {APP_VERSION}",
+    )
     parser.add_argument(
         "--project-root",
         help="包含 run-local.py 的项目目录（安装快捷方式会自动传入）",

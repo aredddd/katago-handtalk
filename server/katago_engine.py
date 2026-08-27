@@ -26,11 +26,19 @@ logger = logging.getLogger(__name__)
 class KataGoEngine(KataGoFacade):
     """Concrete Façade implementation — wraps the KataGo subprocess."""
 
-    def __init__(self, katago_path, model_path, config_path, max_wait=300):
+    def __init__(
+        self,
+        katago_path,
+        model_path,
+        config_path,
+        max_wait=300,
+        working_dir=None,
+    ):
         self.katago_path = katago_path
         self.model_path = model_path
         self.config_path = config_path
         self.max_wait = max_wait
+        self.working_dir = working_dir or (os.path.dirname(katago_path) or ".")
         self.report_perspective = self._read_report_perspective(config_path)
 
         self.process = None
@@ -137,13 +145,14 @@ class KataGoEngine(KataGoFacade):
         logger.info(f"Starting KataGo: {' '.join(cmd)}")
 
         try:
+            os.makedirs(self.working_dir, exist_ok=True)
             self.stderr_tail.clear()
             self.process = subprocess.Popen(
                 cmd,
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                cwd=os.path.dirname(self.katago_path) or ".",
+                cwd=self.working_dir,
             )
         except FileNotFoundError:
             logger.error(f"KataGo executable not found: {self.katago_path}")
