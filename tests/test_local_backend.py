@@ -156,6 +156,18 @@ def test_auth_and_admin_routes_are_not_registered(local_app):
     assert "/admin" not in registered_rules
 
 
+def test_status_exposes_stable_desktop_service_marker(local_app):
+    app, _, _ = local_app
+
+    response = app.test_client().get("/api/status")
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["app"] == "katago-web-beginner"
+    assert payload["api_version"] == 1
+    assert payload["running"] is True
+
+
 def test_recognition_rejects_missing_or_invalid_upload(local_app):
     app, _, _ = local_app
     client = app.test_client()

@@ -5,6 +5,7 @@ __pycache__/
 *.egg-info/
 dist/
 build/
+desktop-dist/
 *.egg
 
 # Model weights (too large for git)

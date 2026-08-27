@@ -27,6 +27,10 @@ def index():
 @pages_bp.route("/api/status")
 def api_status():
     return jsonify({
+        # Stable marker used by the desktop launcher before it decides whether
+        # an existing loopback service can be reused safely.
+        "app":             "katago-web-beginner",
+        "api_version":     1,
         "running":         _service().is_ready(),
         "katago_path":     KATAGO_PATH,
         "model_path":      MODEL_PATH,

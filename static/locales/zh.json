@@ -69,5 +69,6 @@
   "liveIllegalChange": "检测到的变化无法按围棋规则复现，正在重新确认",
   "liveRelocated": "检测到多手变化，已按当前画面重新同步",
   "liveUnsupported": "当前浏览器不支持屏幕共享，请改用最新版 Edge 或 Chrome。",
+  "liveDesktopUnsupported": "当前桌面环境不支持窗口共享，请使用系统截图导入，或在浏览器中打开实时复盘。",
   "liveHint": "选择包含棋盘的窗口；仅在局面变化时重新分析。"
 }

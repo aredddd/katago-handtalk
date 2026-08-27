@@ -51,6 +51,7 @@
         liveIllegalChange: "检测到的变化无法按围棋规则复现，正在重新确认",
         liveRelocated: "检测到多手变化，已按当前画面重新同步",
         liveUnsupported: "当前浏览器不支持屏幕共享，请使用最新版 Edge 或 Chrome。",
+        liveDesktopUnsupported: "当前桌面环境不支持窗口共享，请使用系统截图导入，或在浏览器中打开实时复盘。",
     }};
     let availableLangs = ["en", "zh"];  // overwritten by /api/config
     let serverDefaultLang = "en";       // overwritten by /api/config
@@ -139,6 +140,49 @@
     let _aiReqSeq            = 0;
     let _latestAiReqId       = 0;
 
+    function reportDesktopEvent(method, payload) {
+        const api = window.pywebview && window.pywebview.api;
+        if (!api || typeof api[method] !== "function") return false;
+        Promise.resolve(api[method](payload)).catch(() => {});
+        return true;
+    }
+
+    function reportDesktopReady() {
+        return reportDesktopEvent("client_ready", {
+            socketId: socket && socket.connected ? socket.id : null,
+            screenSharing: Boolean(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia),
+            clipboardRead: Boolean(navigator.clipboard && navigator.clipboard.read),
+        });
+    }
+
+    window.addEventListener("pywebviewready", reportDesktopReady);
+
+    function probeDesktopBridge() {
+        if (!window.pywebview) return;
+        let attempts = 0;
+        const timer = setInterval(() => {
+            attempts++;
+            if (reportDesktopReady() || attempts >= 20) clearInterval(timer);
+        }, 250);
+    }
+
+    window.addEventListener("error", (event) => {
+        reportDesktopEvent("client_error", {
+            message: event.message || "JavaScript error",
+            source: event.filename || "",
+            line: event.lineno || 0,
+            column: event.colno || 0,
+            stack: event.error && event.error.stack ? String(event.error.stack) : "",
+        });
+    });
+    window.addEventListener("unhandledrejection", (event) => {
+        const reason = event.reason;
+        reportDesktopEvent("client_error", {
+            message: reason && reason.message ? reason.message : String(reason || "Unhandled promise rejection"),
+            stack: reason && reason.stack ? String(reason.stack) : "",
+        });
+    });
+
     // ── Init ──────────────────────────────────────────────────────────────────
 
     window.addEventListener("DOMContentLoaded", async () => {
@@ -159,6 +203,7 @@
         bindUI();
         bindRecognition();
         bindLiveReview();
+        probeDesktopBridge();
 
         setStatus("offline", t("connecting"));
     });
@@ -172,6 +217,11 @@
 
         socket.on("connect", () => {
             setStatus("online", t("connected"));
+            reportDesktopReady();
+            // WebView2 can finish installing the native bridge just after the
+            // Socket.IO connection. A short retry records the ready state in
+            // that race without affecting ordinary browsers.
+            setTimeout(reportDesktopReady, 350);
         });
 
         socket.on("disconnect", () => {
@@ -638,14 +688,7 @@
             if (file) uploadAndRecognize(file);
         });
 
-        document.getElementById("btn-snipping").addEventListener("click", () => {
-            // Windows 11 Snipping Tool protocol. The capture is copied to the
-            // clipboard; returning here and pressing Ctrl+V imports it locally.
-            const launcher = document.createElement("a");
-            launcher.href = "ms-screenclip://capture/image?rectangle&enabledModes=SnippingAllModes&user-agent=KataGoWeb";
-            launcher.click();
-            setStatus("online", t("snipThenPaste"));
-        });
+        document.getElementById("btn-snipping").addEventListener("click", launchSnippingTool);
 
         document.getElementById("btn-paste").addEventListener("click", importClipboardImage);
         document.addEventListener("paste", (event) => {
@@ -865,37 +908,132 @@
         return null;
     }
 
-    async function importClipboardImage() {
-        if (liveReviewStream || liveReviewStarting) return;
-        if (!navigator.clipboard || !navigator.clipboard.read) {
-            alert(t("pasteShortcut"));
-            return;
+    function desktopApi() {
+        return window.pywebview && window.pywebview.api ? window.pywebview.api : null;
+    }
+
+    function isDesktopShell() {
+        return Boolean(window.pywebview);
+    }
+
+    async function launchSnippingTool() {
+        const api = desktopApi();
+        if (api && typeof api.open_snipping_tool === "function") {
+            try {
+                const launched = await api.open_snipping_tool();
+                if (launched !== false) {
+                    setStatus("online", t("snipThenPaste"));
+                    return;
+                }
+            } catch (err) {
+                console.warn("Native Snipping Tool launch failed; using the Windows protocol", err);
+            }
+        }
+
+        // Browser fallback. The Windows capture protocol copies the result to
+        // the clipboard, ready for Ctrl+V or the paste button.
+        const launcher = document.createElement("a");
+        launcher.href = "ms-screenclip://capture/image?rectangle&enabledModes=SnippingAllModes&user-agent=KataGoWeb";
+        launcher.click();
+        setStatus("online", t("snipThenPaste"));
+    }
+
+    function base64ImageToFile(value, fallbackMime = "image/png") {
+        if (typeof value !== "string" || !value.trim()) return null;
+        let encoded = value.trim();
+        let mimeType = fallbackMime;
+        const dataUrl = encoded.match(/^data:([^;,]+)?(;base64)?,([\s\S]*)$/i);
+        if (dataUrl) {
+            mimeType = dataUrl[1] || mimeType;
+            encoded = dataUrl[3];
+            if (!dataUrl[2]) {
+                const decoded = decodeURIComponent(encoded);
+                return new File(
+                    [new TextEncoder().encode(decoded)],
+                    `clipboard-${Date.now()}.png`,
+                    { type: mimeType },
+                );
+            }
         }
         try {
-            const clipboardItems = await navigator.clipboard.read();
-            for (const item of clipboardItems) {
-                const imageType = item.types.find((type) => type.startsWith("image/"));
-                if (!imageType) continue;
-                const blob = await item.getType(imageType);
-                const extension = imageType.split("/")[1] || "png";
-                const file = new File(
-                    [blob],
-                    `clipboard-${Date.now()}.${extension}`,
-                    { type: imageType },
-                );
-                await uploadAndRecognize(file);
-                return;
-            }
-            alert(t("clipboardNoImage"));
+            const binary = atob(encoded.replace(/\s/g, ""));
+            const bytes = new Uint8Array(binary.length);
+            for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+            const extension = mimeType.split("/")[1] || "png";
+            return new File(
+                [bytes],
+                `clipboard-${Date.now()}.${extension}`,
+                { type: mimeType },
+            );
         } catch (err) {
-            if (err.name !== "NotAllowedError") console.warn("Clipboard image read failed", err);
-            alert(t("pasteShortcut"));
+            console.warn("Native clipboard returned an invalid image", err);
+            return null;
         }
+    }
+
+    function nativeClipboardPayloadToFile(payload) {
+        if (!payload) return null;
+        if (payload instanceof Blob) {
+            const mimeType = payload.type || "image/png";
+            const extension = mimeType.split("/")[1] || "png";
+            return new File([payload], `clipboard-${Date.now()}.${extension}`, { type: mimeType });
+        }
+        if (typeof payload === "string") return base64ImageToFile(payload);
+        if (typeof payload !== "object") return null;
+
+        const mimeType = payload.mimeType || payload.mime_type || "image/png";
+        const value = payload.dataUrl || payload.data_url || payload.base64 || payload.data;
+        return base64ImageToFile(value, mimeType);
+    }
+
+    async function importNativeClipboardImage() {
+        const api = desktopApi();
+        if (!api) return null;
+        const reader = api.read_clipboard_image || api.get_clipboard_image;
+        if (typeof reader !== "function") return null;
+        try {
+            const file = nativeClipboardPayloadToFile(await reader.call(api));
+            if (!file) return false;
+            await uploadAndRecognize(file);
+            return true;
+        } catch (err) {
+            console.warn("Native clipboard image read failed", err);
+            return null;
+        }
+    }
+
+    async function importClipboardImage() {
+        if (liveReviewStream || liveReviewStarting) return;
+        let clipboardWasReadable = false;
+        if (navigator.clipboard && navigator.clipboard.read) {
+            try {
+                const clipboardItems = await navigator.clipboard.read();
+                clipboardWasReadable = true;
+                for (const item of clipboardItems) {
+                    const imageType = item.types.find((type) => type.startsWith("image/"));
+                    if (!imageType) continue;
+                    const blob = await item.getType(imageType);
+                    const extension = imageType.split("/")[1] || "png";
+                    const file = new File(
+                        [blob],
+                        `clipboard-${Date.now()}.${extension}`,
+                        { type: imageType },
+                    );
+                    await uploadAndRecognize(file);
+                    return;
+                }
+            } catch (err) {
+                if (err.name !== "NotAllowedError") console.warn("Clipboard image read failed", err);
+            }
+        }
+        const nativeResult = await importNativeClipboardImage();
+        if (nativeResult === true) return;
+        alert(t(clipboardWasReadable || nativeResult === false ? "clipboardNoImage" : "pasteShortcut"));
     }
 
     async function startLiveReview() {
         if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
-            alert(t("liveUnsupported"));
+            alert(t(isDesktopShell() ? "liveDesktopUnsupported" : "liveUnsupported"));
             return;
         }
         closeRecognizeModal();
@@ -932,7 +1070,11 @@
             if (generation !== liveReviewGeneration) return;
             stopLiveReview();
             if (err.name !== "NotAllowedError") {
-                setLiveReviewState(false, `${t("liveError")}: ${err.message}`);
+                const unsupported = isDesktopShell() &&
+                    ["NotSupportedError", "NotFoundError", "SecurityError"].includes(err.name);
+                setLiveReviewState(false, unsupported
+                    ? t("liveDesktopUnsupported")
+                    : `${t("liveError")}: ${err.message}`);
             }
         } finally {
             if (generation === liveReviewGeneration) liveReviewStarting = false;
