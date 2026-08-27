@@ -276,6 +276,42 @@ input:focus-visible {
     background: var(--control-hover);
 }
 
+.desktop-only {
+    display: none !important;
+}
+
+html.desktop-shell .desktop-only {
+    display: inline-flex !important;
+}
+
+#btn-topmost {
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+}
+
+#btn-topmost .pin-icon {
+    width: 15px;
+    height: 15px;
+    flex: 0 0 15px;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+#btn-topmost.is-active {
+    color: var(--accent-deep);
+    border-color: color-mix(in srgb, var(--accent-color) 42%, transparent);
+    background: var(--control-active);
+    box-shadow: inset 0 1px 0 var(--glass-highlight), 0 0 0 3px var(--accent-soft);
+}
+
+#btn-topmost:disabled {
+    cursor: wait;
+    opacity: 0.62;
+}
+
 .hidden-controls {
     display: none !important;
 }

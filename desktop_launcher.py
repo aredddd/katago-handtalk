@@ -35,6 +35,7 @@ APP_TITLE = "KataGo 手谈"
 SERVICE_APP_ID = "katago-web-beginner"
 SERVICE_API_VERSION = 1
 RUNTIME_HEALTH_SCHEMA = 1
+PREFERENCES_SCHEMA = 1
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 5000
 DEFAULT_STARTUP_TIMEOUT = 240.0
@@ -161,6 +162,89 @@ def configure_logging(log_file: Path) -> None:
     handler = logging.FileHandler(log_file, encoding="utf-8")
     handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
     LOGGER.addHandler(handler)
+
+
+def load_always_on_top(preferences_file: Path) -> bool:
+    """Read the persisted window preference, defaulting safely to ``False``."""
+    try:
+        payload = json.loads(preferences_file.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, TypeError, ValueError):
+        return False
+    if not isinstance(payload, Mapping):
+        return False
+    return (
+        payload.get("schema") == PREFERENCES_SCHEMA
+        and payload.get("always_on_top") is True
+    )
+
+
+def save_always_on_top(preferences_file: Path, enabled: bool) -> None:
+    """Atomically persist the only desktop preference currently supported."""
+    preferences_file.parent.mkdir(parents=True, exist_ok=True)
+    temporary = preferences_file.with_name(
+        f".{preferences_file.name}.{os.getpid()}.tmp"
+    )
+    try:
+        temporary.write_text(
+            json.dumps(
+                {
+                    "schema": PREFERENCES_SCHEMA,
+                    "always_on_top": enabled,
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        os.replace(temporary, preferences_file)
+    finally:
+        try:
+            temporary.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
+def apply_window_topmost(window: Any, enabled: bool) -> None:
+    """Change a live window's Z-order without blocking pywebview's JS bridge.
+
+    pywebview 6.1 assigns WinForms ``TopMost`` directly.  When that setter is
+    reached from a synchronous JavaScript API callback, WebView2 can deadlock
+    waiting for the callback to finish.  ``SetWindowPos`` changes the same
+    native window state without re-entering the managed WebView callback.
+    """
+    if os.name == "nt":
+        native = getattr(window, "native", None)
+        managed_handle = getattr(native, "Handle", None)
+        if managed_handle is not None:
+            try:
+                handle_value = int(managed_handle.ToInt64())
+            except (AttributeError, TypeError, ValueError):
+                handle_value = int(managed_handle)
+            if handle_value:
+                user32 = ctypes.WinDLL("user32", use_last_error=True)
+                set_window_pos = user32.SetWindowPos
+                set_window_pos.argtypes = (
+                    wintypes.HWND,
+                    wintypes.HWND,
+                    ctypes.c_int,
+                    ctypes.c_int,
+                    ctypes.c_int,
+                    ctypes.c_int,
+                    wintypes.UINT,
+                )
+                set_window_pos.restype = wintypes.BOOL
+                insert_after = wintypes.HWND(-1 if enabled else -2)
+                flags = 0x0001 | 0x0002 | 0x0010  # NOSIZE | NOMOVE | NOACTIVATE
+                if not set_window_pos(
+                    wintypes.HWND(handle_value), insert_after, 0, 0, 0, 0, flags
+                ):
+                    raise ctypes.WinError(ctypes.get_last_error())
+                return
+
+    # Development tests and non-Windows backends can use pywebview's normal
+    # property because they do not have the WebView2 callback deadlock above.
+    window.on_top = enabled
 
 
 def is_reusable_status(payload: object) -> bool:
@@ -636,6 +720,16 @@ class DesktopApi:
         LOGGER.error("Desktop client error: %s", payload)
         return True
 
+    def get_always_on_top(self) -> bool:
+        """Return whether the native window is currently pinned above others."""
+        return bool(self._launcher and self._launcher.always_on_top)
+
+    def set_always_on_top(self, enabled: object) -> bool:
+        """Set and persist the native window's topmost state."""
+        if not self._launcher:
+            return False
+        return self._launcher.set_always_on_top(enabled)
+
     def read_clipboard_image(self) -> str | None:
         """Return a native PNG clipboard payload as a data URL when available.
 
@@ -724,6 +818,8 @@ class DesktopLauncher:
         self._worker: threading.Thread | None = None
         self._owned: OwnedProcess | None = None
         self._ready = False
+        self._preferences_file = self.log_dir.parent / "preferences.json"
+        self._always_on_top = load_always_on_top(self._preferences_file)
         self._last_state: dict[str, str] = {
             "kind": "working",
             "title": "正在准备…",
@@ -737,8 +833,37 @@ class DesktopLauncher:
         with self._lock:
             return self._owned.process if self._owned else None
 
+    @property
+    def always_on_top(self) -> bool:
+        with self._lock:
+            return self._always_on_top
+
     def attach_window(self, window: Any) -> None:
         self.window = window
+
+    def set_always_on_top(self, enabled: object) -> bool:
+        """Apply a validated topmost state and remember it for the next launch."""
+        if type(enabled) is not bool:
+            LOGGER.warning("Ignoring invalid always-on-top value: %r", enabled)
+            return self.always_on_top
+
+        window = self.window
+        if window is None:
+            return self.always_on_top
+        try:
+            apply_window_topmost(window, enabled)
+        except Exception:
+            LOGGER.exception("Could not change always-on-top state")
+            return self.always_on_top
+
+        with self._lock:
+            self._always_on_top = enabled
+        try:
+            save_always_on_top(self._preferences_file, enabled)
+        except OSError:
+            LOGGER.exception("Could not persist always-on-top preference")
+        LOGGER.info("Always-on-top changed: %s", enabled)
+        return enabled
 
     def expose_native_api(self) -> None:
         """Register the small native bridge allowlist before WebView startup.
@@ -760,6 +885,8 @@ class DesktopLauncher:
                 self.api.read_clipboard_image,
                 self.api.client_ready,
                 self.api.client_error,
+                self.api.get_always_on_top,
+                self.api.set_always_on_top,
             )
             LOGGER.info("Native desktop API whitelist registered")
         except Exception as exc:
@@ -1172,6 +1299,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             height=820,
             min_size=(900, 650),
             maximized=True,
+            on_top=launcher.always_on_top,
             background_color="#0d1512",
         )
         launcher.attach_window(window)

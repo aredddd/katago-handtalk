@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
 const app = readFileSync(new URL("../static/js/app.js", import.meta.url), "utf8");
+const index = readFileSync(new URL("../static/index.html", import.meta.url), "utf8");
 const zh = JSON.parse(readFileSync(new URL("../static/locales/zh.json", import.meta.url), "utf8"));
 const en = JSON.parse(readFileSync(new URL("../static/locales/en.json", import.meta.url), "utf8"));
 
@@ -27,4 +28,14 @@ test("desktop shell reports client readiness and JavaScript failures", () => {
   assert.match(app, /reportDesktopEvent\("client_error"/);
   assert.match(app, /pywebviewready/);
   assert.match(app, /unhandledrejection/);
+});
+
+test("desktop header can pin and unpin the native window", () => {
+  assert.match(index, /id="btn-topmost"/);
+  assert.match(index, /class="icon-button desktop-only"/);
+  assert.match(index, /aria-pressed="false"/);
+  assert.match(app, /api\.get_always_on_top/);
+  assert.match(app, /api\.set_always_on_top/);
+  assert.ok(zh.windowPin && zh.windowPinned && zh.windowPinnedTitle);
+  assert.ok(en.windowPin && en.windowPinned && en.windowPinnedTitle);
 });

@@ -52,6 +52,8 @@
         liveRelocated: "检测到多手变化，已按当前画面重新同步",
         liveUnsupported: "当前浏览器不支持屏幕共享，请使用最新版 Edge 或 Chrome。",
         liveDesktopUnsupported: "当前桌面环境不支持窗口共享，请使用系统截图导入，或在浏览器中打开实时复盘。",
+        windowPin: "置顶", windowPinned: "已置顶",
+        windowPinTitle: "让窗口保持在最前", windowPinnedTitle: "取消窗口置顶",
     }};
     let availableLangs = ["en", "zh"];  // overwritten by /api/config
     let serverDefaultLang = "en";       // overwritten by /api/config
@@ -100,6 +102,7 @@
                 document.getElementById("engine-text").textContent = t("engineReady");
             }
         }
+        renderAlwaysOnTopButton();
     }
 
     function toggleLang() {
@@ -117,6 +120,9 @@
     let gameMode     = "free-play";
     let isThinking   = false;
     let gameOver = false;
+    let desktopAlwaysOnTop = false;
+    let desktopTopmostAvailable = false;
+    let desktopTopmostSyncing = false;
 
     // Live review deliberately uses browser screen sharing rather than any
     // game-client integration. Frames are recognized locally by this server.
@@ -147,6 +153,56 @@
         return true;
     }
 
+    function renderAlwaysOnTopButton() {
+        const button = document.getElementById("btn-topmost");
+        const label = document.getElementById("topmost-label");
+        if (!button || !label) return;
+        document.documentElement.classList.toggle("desktop-shell", desktopTopmostAvailable);
+        button.classList.toggle("is-active", desktopAlwaysOnTop);
+        button.setAttribute("aria-pressed", String(desktopAlwaysOnTop));
+        label.textContent = t(desktopAlwaysOnTop ? "windowPinned" : "windowPin");
+        const title = t(desktopAlwaysOnTop ? "windowPinnedTitle" : "windowPinTitle");
+        button.title = title;
+        button.setAttribute("aria-label", title);
+    }
+
+    async function syncDesktopAlwaysOnTop() {
+        if (desktopTopmostSyncing) return false;
+        const api = window.pywebview && window.pywebview.api;
+        if (!api || typeof api.get_always_on_top !== "function" ||
+            typeof api.set_always_on_top !== "function") return false;
+        desktopTopmostSyncing = true;
+        try {
+            desktopAlwaysOnTop = Boolean(await api.get_always_on_top());
+            desktopTopmostAvailable = true;
+            renderAlwaysOnTopButton();
+            return true;
+        } catch (error) {
+            console.warn("Could not read desktop window preference", error);
+            return false;
+        } finally {
+            desktopTopmostSyncing = false;
+        }
+    }
+
+    async function toggleDesktopAlwaysOnTop() {
+        const button = document.getElementById("btn-topmost");
+        const api = window.pywebview && window.pywebview.api;
+        if (!button || !api || typeof api.set_always_on_top !== "function") return;
+        button.disabled = true;
+        try {
+            desktopAlwaysOnTop = Boolean(
+                await api.set_always_on_top(!desktopAlwaysOnTop)
+            );
+            desktopTopmostAvailable = true;
+        } catch (error) {
+            console.warn("Could not change desktop window preference", error);
+        } finally {
+            button.disabled = false;
+            renderAlwaysOnTopButton();
+        }
+    }
+
     function reportDesktopReady() {
         return reportDesktopEvent("client_ready", {
             socketId: socket && socket.connected ? socket.id : null,
@@ -155,14 +211,22 @@
         });
     }
 
-    window.addEventListener("pywebviewready", reportDesktopReady);
+    window.addEventListener("pywebviewready", () => {
+        reportDesktopReady();
+        syncDesktopAlwaysOnTop();
+    });
 
     function probeDesktopBridge() {
         if (!window.pywebview) return;
         let attempts = 0;
         const timer = setInterval(() => {
             attempts++;
-            if (reportDesktopReady() || attempts >= 20) clearInterval(timer);
+            if (reportDesktopReady()) {
+                syncDesktopAlwaysOnTop();
+                clearInterval(timer);
+            } else if (attempts >= 20) {
+                clearInterval(timer);
+            }
         }, 250);
     }
 
@@ -564,6 +628,9 @@
     function bindUI() {
         // Language toggle
         document.getElementById("btn-lang").addEventListener("click", toggleLang);
+        document.getElementById("btn-topmost").addEventListener(
+            "click", toggleDesktopAlwaysOnTop
+        );
 
         // Mode buttons
         document.querySelectorAll(".mode-btn").forEach((btn) => {

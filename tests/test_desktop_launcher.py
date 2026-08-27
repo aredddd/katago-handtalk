@@ -301,6 +301,8 @@ def test_desktop_api_exposes_snipping_and_clipboard_fallback(tmp_path, monkeypat
     api = dl.DesktopApi(tmp_path / "logs")
     assert callable(api.open_snipping_tool)
     assert callable(api.read_clipboard_image)
+    assert callable(api.get_always_on_top)
+    assert callable(api.set_always_on_top)
     assert api.client_ready({"socketId": "test"}) is True
     assert api.client_error({"message": "test"}) is True
 
@@ -335,7 +337,76 @@ def test_native_bridge_registers_only_the_explicit_allowlist(tmp_path):
         "read_clipboard_image",
         "client_ready",
         "client_error",
+        "get_always_on_top",
+        "set_always_on_top",
     ]
+
+
+def test_always_on_top_controls_window_and_persists(tmp_path):
+    root = make_project(tmp_path)
+    log_file = tmp_path / "desktop-data" / "logs" / "session.log"
+    launcher = dl.DesktopLauncher(root, log_file)
+
+    class Window:
+        on_top = False
+
+    window = Window()
+    launcher.attach_window(window)
+
+    assert launcher.api.get_always_on_top() is False
+    assert launcher.api.set_always_on_top(True) is True
+    assert window.on_top is True
+    preferences = tmp_path / "desktop-data" / "preferences.json"
+    assert json.loads(preferences.read_text(encoding="utf-8")) == {
+        "schema": 1,
+        "always_on_top": True,
+    }
+
+    restarted = dl.DesktopLauncher(root, log_file)
+    assert restarted.always_on_top is True
+    restarted.attach_window(window)
+    assert restarted.api.set_always_on_top("yes") is True
+    assert window.on_top is True
+    assert restarted.api.set_always_on_top(False) is False
+    assert window.on_top is False
+
+
+def test_live_windows_use_native_z_order_without_pywebview_setter(monkeypatch):
+    calls = []
+
+    class SetWindowPos:
+        argtypes = None
+        restype = None
+
+        def __call__(self, *args):
+            calls.append(args)
+            return 1
+
+    class User32:
+        pass
+
+    user32 = User32()
+    user32.SetWindowPos = SetWindowPos()
+
+    class Window:
+        native = type("Native", (), {"Handle": 123})()
+
+        @property
+        def on_top(self):
+            return False
+
+        @on_top.setter
+        def on_top(self, _enabled):
+            raise AssertionError("pywebview's managed setter must not be used")
+
+    monkeypatch.setattr(dl.os, "name", "nt")
+    monkeypatch.setattr(dl.ctypes, "WinDLL", lambda *_args, **_kwargs: user32)
+
+    dl.apply_window_topmost(Window(), True)
+
+    assert len(calls) == 1
+    assert calls[0][0].value == 123
+    assert calls[0][-1] == 0x0001 | 0x0002 | 0x0010
 
 
 def test_desktop_api_keeps_launcher_and_paths_private(tmp_path):

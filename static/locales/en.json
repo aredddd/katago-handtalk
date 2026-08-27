@@ -70,5 +70,9 @@
   "liveRelocated": "Several moves changed; re-synced from the current frame",
   "liveUnsupported": "Screen sharing is unavailable. Please use a recent Edge or Chrome.",
   "liveDesktopUnsupported": "Window sharing is unavailable in this desktop environment. Import a system screenshot, or use live review in a browser.",
-  "liveHint": "Choose the window containing the board. Analysis refreshes only when the position changes."
+  "liveHint": "Choose the window containing the board. Analysis refreshes only when the position changes.",
+  "windowPin": "Pin",
+  "windowPinned": "Pinned",
+  "windowPinTitle": "Keep this window above others",
+  "windowPinnedTitle": "Stop keeping this window above others"
 }
