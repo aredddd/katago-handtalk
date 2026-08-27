@@ -21,9 +21,11 @@ models/image2sgf/board.pth
 models/image2sgf/stone.pth
 ```
 
-若缺失，安装脚本会在联网安装前停止并给出路径。权重可从
-[noword/image2sgf Releases](https://github.com/noword/image2sgf/releases) 获取；重新
-分发前请确认其上游许可。
+若缺失，安装脚本会在联网安装前停止并给出路径。模型发布页位于
+[noword/image2sgf Releases](https://github.com/noword/image2sgf/releases)，但该项目
+截至 2026-08-28 没有明确许可证。本仓库不提供或镜像这些权重；请只在确认自己
+拥有使用权后放入本地，且不要随源码或安装包重新分发。详见
+[第三方声明](THIRD_PARTY_NOTICES.md)。
 
 ## 日常启动
 

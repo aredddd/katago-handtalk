@@ -2,6 +2,11 @@
 noword/image2sgf CNN board recognizer.
 Based on https://github.com/noword/image2sgf
 
+Licensing note: the upstream repository did not publish an explicit license as
+of 2026-08-28. The portions derived from it are not covered by this fork's MIT
+grant. See THIRD_PARTY_NOTICES.md before redistributing this file or its model
+weights.
+
 Uses two pre-trained PyTorch models:
   - board.pth: FCOS ResNet50 FPN, detects the four board corners
   - stone.pth: EfficientNet B3, classifies each intersection (6 classes)

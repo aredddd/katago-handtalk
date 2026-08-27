@@ -2,3 +2,4 @@ flask
 flask-socketio
 simple-websocket>=1.0
 opencv-python-headless
+Pillow>=10

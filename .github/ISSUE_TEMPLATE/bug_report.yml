@@ -1,0 +1,66 @@
+name: 缺陷报告
+description: 报告可以稳定复现的问题
+title: "[Bug] "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈。请先移除截图、日志中的账号、文件路径和其他个人信息。
+  - type: textarea
+    id: problem
+    attributes:
+      label: 问题描述
+      description: 发生了什么？你原本期待什么？
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      placeholder: |
+        1. 打开……
+        2. 点击……
+        3. 出现……
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: 功能区域
+      options:
+        - 桌面启动 / 连接 KataGo
+        - 对局与分析
+        - 截图导入
+        - 实时复盘
+        - 窗口与界面
+        - 其他
+    validations:
+      required: true
+  - type: input
+    id: commit
+    attributes:
+      label: 版本或提交
+      description: 可填写桌面日志中的版本或 git commit。
+  - type: textarea
+    id: environment
+    attributes:
+      label: 环境
+      description: Windows 版本、显卡、Python、WebView2，以及是否使用桌面版。
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: 已脱敏日志或截图
+      description: 可直接拖入文件；不要上传模型、令牌或个人信息。
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: 提交前确认
+      options:
+        - label: 我已搜索现有 Issues，没有找到同一问题。
+          required: true
+        - label: 我已移除账号、路径、令牌和其他个人信息。
+          required: true
