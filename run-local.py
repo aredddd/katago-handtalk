@@ -31,7 +31,8 @@ logging.basicConfig(
 
 from app_factory import create_app  # noqa: E402
 from config import KATAGO_PATH, MODEL_PATH, PORT  # noqa: E402
-from engine_lifecycle import start_engine  # noqa: E402
+from engine_lifecycle import monitor_engine, start_engine  # noqa: E402
+from events import Events  # noqa: E402
 from noword_recognizer import NOWORD_AVAILABLE  # noqa: E402
 
 
@@ -67,6 +68,19 @@ def main() -> int:
         print("\nKataGo 启动失败，请运行 setup-local.ps1 检查配置。", file=sys.stderr)
         return 1
 
+    monitor_stop = threading.Event()
+
+    def notify_engine_status(running: bool) -> None:
+        socketio.emit(Events.STATUS, {"running": running})
+
+    monitor_thread = threading.Thread(
+        target=monitor_engine,
+        args=(engine, notify_engine_status, monitor_stop),
+        daemon=True,
+        name="katago-watchdog",
+    )
+    monitor_thread.start()
+
     threading.Thread(
         target=_open_browser_when_ready,
         args=(url,),
@@ -85,6 +99,12 @@ def main() -> int:
     except KeyboardInterrupt:
         pass
     finally:
+        # Signal first, then stop on both sides of the bounded join.  This
+        # interrupts an in-flight readiness probe without waiting for its full
+        # query timeout, while the final stop closes the narrow launch race.
+        monitor_stop.set()
+        engine.stop()
+        monitor_thread.join(timeout=5)
         engine.stop()
     return 0
 

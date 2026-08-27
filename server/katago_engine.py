@@ -15,6 +15,7 @@ import time
 import queue
 import logging
 import re
+from collections import deque
 
 from katago_facade import KataGoFacade
 from exceptions import EngineNotRunningError, EngineTimeoutError, EngineQueryError
@@ -41,6 +42,7 @@ class KataGoEngine(KataGoFacade):
         self.running = False
         self.ready = False
         self.query_counter = 0
+        self.stderr_tail = deque(maxlen=80)
 
     def _mark_engine_unavailable(self, reason):
         """Mark the engine unavailable and wake every pending query.
@@ -135,6 +137,7 @@ class KataGoEngine(KataGoFacade):
         logger.info(f"Starting KataGo: {' '.join(cmd)}")
 
         try:
+            self.stderr_tail.clear()
             self.process = subprocess.Popen(
                 cmd,
                 stdin=subprocess.PIPE,
@@ -222,7 +225,25 @@ class KataGoEngine(KataGoFacade):
                 line = process.stdout.readline()
                 if not line:
                     if process is self.process and self.running:
+                        # Give Windows a brief moment to publish the process
+                        # exit code and let the stderr reader drain its pipe.
+                        return_code = process.poll()
+                        if return_code is None and hasattr(process, "wait"):
+                            try:
+                                return_code = process.wait(timeout=0.25)
+                            except (subprocess.TimeoutExpired, TypeError):
+                                return_code = None
                         failure_reason = "KataGo stdout closed unexpectedly"
+                        if return_code is not None:
+                            unsigned_code = int(return_code) & 0xFFFFFFFF
+                            failure_reason += (
+                                f" (exit code {return_code}, 0x{unsigned_code:08X})"
+                            )
+                        if self.stderr_tail:
+                            logger.error(
+                                "KataGo stderr tail before exit:\n%s",
+                                "\n".join(list(self.stderr_tail)[-20:]),
+                            )
                     break
                 if process is not self.process or not self.running:
                     break
@@ -265,8 +286,9 @@ class KataGoEngine(KataGoFacade):
             for line in process.stderr:
                 if process is not self.process or not self.running:
                     break
-                line = line.decode("utf-8").strip()
+                line = line.decode("utf-8", errors="replace").strip()
                 if line:
+                    self.stderr_tail.append(line)
                     logger.debug(f"[KataGo] {line}")
         except Exception:
             pass
