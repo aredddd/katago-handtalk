@@ -123,9 +123,9 @@
                     </div>
 
                     <div class="ai-actions">
-                        <button id="btn-analyze" class="btn-accent" type="button">
-                            <span class="button-icon sparkle" aria-hidden="true">✦</span>
-                            <span><b class="i18n" data-key="analyze">AI 分析</b><small>推荐下一手</small></span>
+                        <button id="btn-analyze" class="btn-accent active" type="button" aria-pressed="true">
+                            <span id="analysis-toggle-icon" class="button-icon sparkle" aria-hidden="true">Ⅱ</span>
+                            <span><b id="analysis-toggle-label">关闭分析</b><small id="analysis-toggle-hint">停止推荐与候选点</small></span>
                         </button>
                         <button id="btn-position" type="button">
                             <span class="button-icon" aria-hidden="true">◐</span>
@@ -277,6 +277,23 @@
                             <button id="btn-recognize-confirm" class="btn-primary" type="button">确认局面，开始推演</button>
                         </div>
                     </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="confirm-modal" class="modal-overlay" hidden role="alertdialog" aria-modal="true" aria-labelledby="confirm-title" aria-describedby="confirm-message">
+            <div id="confirm-dialog" class="modal-content confirm-modal-content">
+                <div class="confirm-dialog-heading">
+                    <span id="confirm-icon" class="confirm-dialog-icon" aria-hidden="true">＋</span>
+                    <div>
+                        <span id="confirm-eyebrow" class="eyebrow">请确认</span>
+                        <h2 id="confirm-title">开始新对局？</h2>
+                    </div>
+                </div>
+                <p id="confirm-message">当前棋局将被清空，此操作无法撤销。</p>
+                <div class="confirm-actions">
+                    <button id="confirm-cancel" type="button">取消</button>
+                    <button id="confirm-accept" class="btn-primary" type="button">开始新对局</button>
                 </div>
             </div>
         </div>

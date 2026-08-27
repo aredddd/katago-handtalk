@@ -161,3 +161,18 @@ test("a pass in the principal variation still flips the stone color", () => {
   assert.equal(fills[0], "#e8e8e8", "move 2 after Black passes must be White");
   assert.equal(fills[1], "#222", "move 3 must switch back to Black");
 });
+
+test("closing analysis clears candidates, ownership, and selection state", () => {
+  const board = makeBoard();
+  board.analysisData = { moves: [{ move: "D4" }] };
+  board.ownershipData = Array(361).fill(0.25);
+  board.hoveredCandidateIdx = 2;
+  board.selectedCandidateIdx = 1;
+
+  board.clearAnalysis();
+
+  assert.equal(board.analysisData, null);
+  assert.equal(board.ownershipData, null);
+  assert.equal(board.hoveredCandidateIdx, -1);
+  assert.equal(board.selectedCandidateIdx, -1);
+});

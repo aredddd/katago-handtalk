@@ -1150,6 +1150,14 @@ class GoBoard {
         this.draw();
     }
 
+    clearAnalysis() {
+        this.analysisData = null;
+        this.ownershipData = null;
+        this.hoveredCandidateIdx = -1;
+        this.selectedCandidateIdx = -1;
+        this.draw();
+    }
+
     onMove(callback) {
         this.onMoveCallback = callback;
     }

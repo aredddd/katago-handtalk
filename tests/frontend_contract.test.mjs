@@ -16,6 +16,8 @@ test("beginner controls and analysis surfaces stay available", () => {
     "btn-resign",
     "btn-new-game",
     "btn-analyze",
+    "analysis-toggle-label",
+    "analysis-toggle-hint",
     "btn-position",
     "btn-camera",
     "btn-snipping",
@@ -37,6 +39,11 @@ test("beginner controls and analysis surfaces stay available", () => {
     "recognize-next-player",
     "recognize-source-preview",
     "recognize-uncertain-count",
+    "confirm-modal",
+    "confirm-title",
+    "confirm-message",
+    "confirm-cancel",
+    "confirm-accept",
   ];
   for (const id of requiredIds) {
     assert.match(index, new RegExp(`id=["']${id}["']`), `missing #${id}`);
@@ -108,6 +115,32 @@ test("AI responses are position-scoped and hidden review shortcuts stay removed"
   assert.match(app, /gameMode === "play-black" \? 1/);
 });
 
+test("analysis can be fully closed and safely reopened", () => {
+  assert.match(app, /function setAnalysisEnabled\(enabled/);
+  assert.match(app, /setAnalysisEnabled\(!isAnalysisEnabled\(\)\)/);
+  assert.match(app, /button\.setAttribute\("aria-pressed", String\(enabled\)\)/);
+  assert.match(app, /board\.clearAnalysis\(\)/);
+  assert.match(app, /!\(isThinking && isAiTurn\(\)\)/);
+  assert.match(app, /if \(!isAnalysisEnabled\(\)\) return/);
+  assert.match(app, /setAnalysisEnabled\(true, \{ request: false \}\)/);
+  assert.equal(
+    [...app.matchAll(/if \(isAnalysisEnabled\(\)\) updateWinrate/g)].length,
+    2,
+    "an AI move must not restore evaluation after analysis is closed",
+  );
+});
+
+test("destructive confirmations use the styled accessible dialog", () => {
+  assert.doesNotMatch(app, /\bconfirm\s*\(/);
+  assert.match(index, /id="confirm-modal"[^>]+role="alertdialog"[^>]+aria-modal="true"/);
+  assert.match(app, /function showConfirmDialog\(config\)/);
+  assert.match(app, /titleKey: "newGameDialogTitle"/);
+  assert.match(app, /titleKey: "resignDialogTitle"/);
+  assert.match(app, /event\.key === "Escape"/);
+  assert.match(css, /\.modal-overlay\[hidden\]\s*\{\s*display:\s*none/);
+  assert.match(css, /\.confirm-modal-content\.is-danger/);
+});
+
 test("new beginner and live-review strings exist in both languages", () => {
   const keys = [
     "position", "resign", "confirmResign", "screenshotImport",
@@ -115,6 +148,9 @@ test("new beginner and live-review strings exist in both languages", () => {
     "snipThenPaste", "pasteShortcut", "clipboardNoImage",
     "recognizeCropHint", "recognizeCheckCount", "recognizeCheckClear",
     "liveTurnMismatch", "liveIllegalChange", "liveRelocated", "liveNeedsResync",
+    "analysisOn", "analysisOff", "analysisOnHint", "analysisOffHint",
+    "confirmAction", "cancel", "newGameDialogTitle", "startNewGame",
+    "resignDialogTitle", "confirmResignAction",
   ];
   for (const key of keys) {
     assert.ok(zh[key], `missing zh.${key}`);

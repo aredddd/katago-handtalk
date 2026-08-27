@@ -31,10 +31,15 @@
         aiThinking: "AI 思考中…", boardLoaded: "棋盘已加载", black: "黑", white: "白",
         freePlay: "自由推演", playBlack: "执黑", playWhite: "执白", undo: "悔棋",
         pass: "停一手", analyze: "分析", newGame: "新对局", komi: "贴目",
+        analysisOn: "开启分析", analysisOff: "关闭分析",
+        analysisOnHint: "显示推荐下一手", analysisOffHint: "停止推荐与候选点",
         suggestions: "推荐走法", mainLine: "主要变化", noSuggestions: "无推荐走法",
         suggestPlaceholder: "落子后将显示分析", pvPlaceholder: "点击推荐走法查看变化",
-        pvEmpty: "无变化", confirmNewGame: "确定要开始新对局吗？",
-        confirmResign: "确定要认输并结束当前对局吗？", resigned: "棋认输",
+        pvEmpty: "无变化", confirmAction: "请确认", cancel: "取消",
+        newGameDialogTitle: "开始新对局？", startNewGame: "开始新对局",
+        confirmNewGame: "当前棋局、变化图和分析结果将被清空。",
+        resignDialogTitle: "确认认输？", confirmResignAction: "确认认输",
+        confirmResign: "认输后当前对局将结束，但仍可开始新对局。", resigned: "棋认输",
         twoPasses: "双方连续停一手，对局结束",
         recognizing: "AI 正在识别棋盘，请稍候…", recognizeResult: "识别结果",
         recognizeCropHint: "尽量只截棋盘区域，识别会更快、更准。",
@@ -107,6 +112,8 @@
             }
         }
         renderAlwaysOnTopButton();
+        renderAnalysisToggle();
+        renderConfirmDialog();
         if (recognizedBoard) updateRecognizeUncertainCount();
     }
 
@@ -140,6 +147,9 @@
     let liveReviewAbortController = null;
     let livePendingSignature = "";
     let livePendingCount = 0;
+    let confirmDialogResolver = null;
+    let confirmDialogTrigger = null;
+    let confirmDialogConfig = null;
 
     // Monotonic request id. Each requestAnalysis() bumps the counter and tags
     // its emit with reqId; the server echoes it back in the analysis result.
@@ -408,7 +418,7 @@
 
         if (data.move === "pass") {
             recordPass();
-            updateWinrate(data.winrate, data.scoreLead);
+            if (isAnalysisEnabled()) updateWinrate(data.winrate, data.scoreLead);
             requestAnalysis();
             return;
         }
@@ -418,7 +428,7 @@
             clearAnalysisPanels();
             board.draw();
             updateMoveCount();
-            updateWinrate(data.winrate, data.scoreLead);
+            if (isAnalysisEnabled()) updateWinrate(data.winrate, data.scoreLead);
             requestAnalysis();
         }
     }
@@ -429,7 +439,7 @@
         // Do not let a manual overlay refresh cancel the AI move that the game
         // is currently waiting for.
         if (isThinking && isAiTurn()) return;
-        if (!document.getElementById("show-analysis").checked) return;
+        if (!isAnalysisEnabled()) return;
 
         const reqId = ++_analysisReqSeq;
         _latestAnalysisReqId = reqId;
@@ -455,6 +465,9 @@
         if (data.reqId !== undefined && data.reqId !== _latestAnalysisReqId) {
             return;
         }
+        // Closing analysis is also a display privacy boundary: a result that
+        // was already in flight must never paint candidates back onto the board.
+        if (!isAnalysisEnabled()) return;
         setStatus("online", t("engineReady"));
         board.setAnalysis(data);
         updateWinrate(data.winrate, data.scoreLead);
@@ -486,6 +499,109 @@
         document.getElementById("pv-display").innerHTML =
             `<p class="placeholder">${t("pvPlaceholder")}</p>`;
         if (resetEvaluation) updateWinrate(0.5, 0);
+    }
+
+    function isAnalysisEnabled() {
+        const setting = document.getElementById("show-analysis");
+        return Boolean(setting && setting.checked);
+    }
+
+    function renderAnalysisToggle() {
+        const button = document.getElementById("btn-analyze");
+        if (!button) return;
+        const enabled = isAnalysisEnabled();
+        button.classList.toggle("active", enabled);
+        button.classList.toggle("btn-accent", enabled);
+        button.setAttribute("aria-pressed", String(enabled));
+        document.getElementById("analysis-toggle-icon").textContent = enabled ? "Ⅱ" : "✦";
+        document.getElementById("analysis-toggle-label").textContent =
+            t(enabled ? "analysisOff" : "analysisOn");
+        document.getElementById("analysis-toggle-hint").textContent =
+            t(enabled ? "analysisOffHint" : "analysisOnHint");
+    }
+
+    function setAnalysisEnabled(enabled, { request = true } = {}) {
+        const setting = document.getElementById("show-analysis");
+        if (!setting) return;
+        setting.checked = Boolean(enabled);
+        if (!board) {
+            renderAnalysisToggle();
+            return;
+        }
+
+        board.showAnalysis = setting.checked;
+        if (!setting.checked) {
+            invalidateAnalysisResults();
+            // Analysis and AI moves share one backend query slot. Never cancel
+            // here while the AI is choosing its move.
+            const mayCancelAnalysis = socket && socket.connected &&
+                !(isThinking && isAiTurn());
+            if (mayCancelAnalysis) socket.emit(EVENTS.CANCEL);
+
+            const ownership = document.getElementById("show-ownership");
+            ownership.checked = false;
+            board.showOwnership = false;
+            document.getElementById("btn-position").classList.remove("active");
+            board.clearAnalysis();
+            clearAnalysisPanels(true);
+            if (!isThinking && socket && socket.connected) {
+                setStatus("online", t("engineReady"));
+            }
+        } else {
+            board.draw();
+            if (request) requestAnalysis();
+        }
+        renderAnalysisToggle();
+    }
+
+    function renderConfirmDialog() {
+        const config = confirmDialogConfig || {
+            titleKey: "newGameDialogTitle",
+            messageKey: "confirmNewGame",
+            confirmKey: "startNewGame",
+            icon: "＋",
+            danger: false,
+        };
+        const content = document.getElementById("confirm-dialog");
+        if (!content) return;
+        content.classList.toggle("is-danger", Boolean(config.danger));
+        document.getElementById("confirm-icon").textContent = config.icon || "＋";
+        document.getElementById("confirm-eyebrow").textContent = t("confirmAction");
+        document.getElementById("confirm-title").textContent = t(config.titleKey);
+        document.getElementById("confirm-message").textContent = t(config.messageKey);
+        document.getElementById("confirm-cancel").textContent = t("cancel");
+        document.getElementById("confirm-accept").textContent = t(config.confirmKey);
+    }
+
+    function closeConfirmDialog(accepted) {
+        const modal = document.getElementById("confirm-modal");
+        if (modal) modal.hidden = true;
+        const resolve = confirmDialogResolver;
+        const trigger = confirmDialogTrigger;
+        confirmDialogResolver = null;
+        confirmDialogTrigger = null;
+        confirmDialogConfig = null;
+        if (resolve) resolve(Boolean(accepted));
+        if (trigger && typeof trigger.focus === "function") {
+            window.setTimeout(() => trigger.focus(), 0);
+        }
+    }
+
+    function showConfirmDialog(config) {
+        if (confirmDialogResolver) closeConfirmDialog(false);
+        confirmDialogConfig = config;
+        confirmDialogTrigger = document.activeElement;
+        renderConfirmDialog();
+        const modal = document.getElementById("confirm-modal");
+        modal.hidden = false;
+        return new Promise((resolve) => {
+            confirmDialogResolver = resolve;
+            window.requestAnimationFrame(() => {
+                if (!modal.hidden && confirmDialogResolver === resolve) {
+                    document.getElementById("confirm-cancel").focus();
+                }
+            });
+        });
     }
 
     function recordPass() {
@@ -672,9 +788,12 @@
             else requestAnalysis();
         });
 
-        document.getElementById("btn-analyze").addEventListener("click", requestAnalysis);
+        document.getElementById("btn-analyze").addEventListener("click", () => {
+            setAnalysisEnabled(!isAnalysisEnabled());
+        });
 
         document.getElementById("btn-position").addEventListener("click", () => {
+            if (!isAnalysisEnabled()) setAnalysisEnabled(true, { request: false });
             const ownership = document.getElementById("show-ownership");
             ownership.checked = !ownership.checked;
             board.showOwnership = ownership.checked;
@@ -683,8 +802,16 @@
             requestAnalysis();
         });
 
-        document.getElementById("btn-resign").addEventListener("click", () => {
-            if (gameOver || !confirm(t("confirmResign"))) return;
+        document.getElementById("btn-resign").addEventListener("click", async () => {
+            if (gameOver) return;
+            const accepted = await showConfirmDialog({
+                titleKey: "resignDialogTitle",
+                messageKey: "confirmResign",
+                confirmKey: "confirmResignAction",
+                icon: "⚑",
+                danger: true,
+            });
+            if (!accepted) return;
             invalidatePendingAi();
             invalidateAnalysisResults();
             if (socket && socket.connected) socket.emit(EVENTS.CANCEL);
@@ -696,15 +823,38 @@
             setStatus("online", `${player}${t("resigned")}`);
         });
 
-        document.getElementById("btn-new-game").addEventListener("click", () => {
-            if (confirm(t("confirmNewGame"))) newGame();
+        document.getElementById("btn-new-game").addEventListener("click", async () => {
+            const accepted = await showConfirmDialog({
+                titleKey: "newGameDialogTitle",
+                messageKey: "confirmNewGame",
+                confirmKey: "startNewGame",
+                icon: "＋",
+                danger: false,
+            });
+            if (accepted) newGame();
+        });
+
+        document.getElementById("confirm-cancel").addEventListener(
+            "click", () => closeConfirmDialog(false)
+        );
+        document.getElementById("confirm-accept").addEventListener(
+            "click", () => closeConfirmDialog(true)
+        );
+        document.getElementById("confirm-modal").addEventListener("click", (event) => {
+            if (event.target === event.currentTarget) closeConfirmDialog(false);
+        });
+        document.addEventListener("keydown", (event) => {
+            const modal = document.getElementById("confirm-modal");
+            if (event.key === "Escape" && !modal.hidden) {
+                event.preventDefault();
+                closeConfirmDialog(false);
+            }
         });
 
         document.getElementById("board-size").addEventListener("change", newGame);
 
         document.getElementById("show-analysis").addEventListener("change", (e) => {
-            board.showAnalysis = e.target.checked; board.draw();
-            if (e.target.checked && board.moves.length > 0) requestAnalysis();
+            setAnalysisEnabled(e.target.checked);
         });
 
         document.getElementById("show-ownership").addEventListener("change", (e) => {
