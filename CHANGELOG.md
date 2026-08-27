@@ -2,6 +2,13 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 的结构。
 
+## [0.1.0-beta.2] - 2026-08-28
+
+### 修复
+
+- 修复 GitHub Actions 测试环境的 Python 版本兼容问题，避免 runner 缺少精确补丁版本时阻断预发布。
+- 首个 `v0.1.0-beta.1` 标签因 runner 未提供 Python `3.11.16` 而未生成 GitHub Release；本版本接续发布。
+
 ## [0.1.0-beta.1] - 2026-08-28
 
 首个可独立发布的 Windows 预览版。

@@ -114,8 +114,8 @@ desktop-dist/KataGo-HandTalk/
 
 每个正式候选至少完成以下步骤：
 
-1. 确认根目录 `VERSION`、Release 标签和更新日志一致；`v0.1.0-beta.1` 对应标签
-   `v0.1.0-beta.1`。
+1. 确认根目录 `VERSION`、Release 标签和更新日志一致；`0.1.0-beta.2` 对应标签
+   `v0.1.0-beta.2`。
 2. 运行 Python 与前端测试：
 
    ```powershell
@@ -135,10 +135,10 @@ desktop-dist/KataGo-HandTalk/
    ```powershell
    Get-Content .\desktop-dist\release\SHA256SUMS
    Get-FileHash `
-     .\desktop-dist\release\KataGo-HandTalk-0.1.0-beta.1-windows-x64.zip `
+     .\desktop-dist\release\KataGo-HandTalk-0.1.0-beta.2-windows-x64.zip `
      -Algorithm SHA256
    Get-FileHash `
-     .\desktop-dist\release\KataGo-HandTalk-0.1.0-beta.1-file-manifest.json `
+     .\desktop-dist\release\KataGo-HandTalk-0.1.0-beta.2-file-manifest.json `
      -Algorithm SHA256
    ```
 
@@ -196,5 +196,5 @@ desktop\install-desktop.cmd
   先保存或导出当前重要推演。
 - **窗口无法显示**：Windows 10 需要 Microsoft Edge WebView2 Runtime；Windows 11
   通常已经自带。启动失败时使用启动器提供的日志与诊断入口。
-- **Windows 显示 SmartScreen**：`v0.1.0-beta.1` 尚未进行 Authenticode 签名。只从
+- **Windows 显示 SmartScreen**：`v0.1.0-beta.2` 尚未进行 Authenticode 签名。只从
   GitHub Release 下载，并核对 `SHA256SUMS` 和构建来源证明。

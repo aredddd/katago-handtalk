@@ -1,7 +1,7 @@
 # 手谈 · KataGo 本地复盘桌面版
 
 [![CI](https://github.com/aredddd/katago-web/actions/workflows/ci.yml/badge.svg)](https://github.com/aredddd/katago-web/actions/workflows/ci.yml)
-![Version](https://img.shields.io/badge/version-v0.1.0--beta.1-2f80ed)
+![Version](https://img.shields.io/badge/version-v0.1.0--beta.2-2f80ed)
 ![Platform](https://img.shields.io/badge/platform-Windows-2f80ed)
 [![License](https://img.shields.io/badge/license-MIT-2f80ed)](LICENSE)
 
@@ -13,11 +13,11 @@ AI 推演都放在一个桌面窗口里；服务只监听 `127.0.0.1`，棋谱�
 
 ## 快速开始：Windows 桌面版
 
-`v0.1.0-beta.1` 推荐直接使用 GitHub Release 的便携 ZIP，不需要安装 Git、Node.js
+`v0.1.0-beta.2` 推荐直接使用 GitHub Release 的便携 ZIP，不需要安装 Git、Node.js
 或系统 Python。
 
 1. 打开 [GitHub Releases](https://github.com/aredddd/katago-web/releases)，下载
-   `KataGo-HandTalk-0.1.0-beta.1-windows-x64.zip` 和同一 Release 中的
+   `KataGo-HandTalk-0.1.0-beta.2-windows-x64.zip` 和同一 Release 中的
    `SHA256SUMS`。
 2. 完整解压 ZIP；不要只从压缩包预览窗口运行 EXE，也不要移动或删除同目录的
    `_internal`、`app` 和 `licenses`。

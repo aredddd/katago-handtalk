@@ -19,7 +19,9 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
-          python-version: "3.11.16"
+          # For CPython 3.11, Windows toolcache builds end at 3.11.9.
+          # The packaged desktop runtime remains the separately pinned PBS 3.11.16.
+          python-version: "3.11.9"
 
       - name: Install Python test dependencies
         run: python -m pip install --require-hashes -r requirements-dev.lock.txt

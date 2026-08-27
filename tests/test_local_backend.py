@@ -165,7 +165,7 @@ def test_status_exposes_stable_desktop_service_marker(local_app):
     payload = response.get_json()
     assert payload["app"] == "katago-web-beginner"
     assert payload["api_version"] == 1
-    assert payload["version"] == "0.1.0-beta.1"
+    assert payload["version"] == "0.1.0-beta.2"
     assert "session_token" in payload
     assert payload["running"] is True
 
@@ -180,7 +180,7 @@ def test_config_reports_optional_recognition_as_a_capability():
     client = app.test_client()
 
     config = client.get("/api/config").get_json()
-    assert config["version"] == "0.1.0-beta.1"
+    assert config["version"] == "0.1.0-beta.2"
     assert config["capabilities"]["recognition"]["available"] is False
     assert config["capabilities"]["live_review"]["available"] is False
 
