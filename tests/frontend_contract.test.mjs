@@ -4,6 +4,7 @@ import { test } from "node:test";
 
 const index = readFileSync(new URL("../static/index.html", import.meta.url), "utf8");
 const app = readFileSync(new URL("../static/js/app.js", import.meta.url), "utf8");
+const css = readFileSync(new URL("../static/css/style.css", import.meta.url), "utf8");
 const zh = JSON.parse(readFileSync(new URL("../static/locales/zh.json", import.meta.url), "utf8"));
 const en = JSON.parse(readFileSync(new URL("../static/locales/en.json", import.meta.url), "utf8"));
 
@@ -89,5 +90,17 @@ test("new beginner and live-review strings exist in both languages", () => {
   for (const key of keys) {
     assert.ok(zh[key], `missing zh.${key}`);
     assert.ok(en[key], `missing en.${key}`);
+  }
+});
+
+test("small desktop windows keep every functional card reachable", () => {
+  assert.match(css, /@media \(min-width: 841px\) and \(max-width: 1280px\)/);
+  assert.match(css, /max-height: 900px/);
+  assert.match(css, /grid-template-areas:\s*"mode action"\s*"live action"\s*"analysis pv"\s*"analysis settings"/);
+  assert.match(css, /scrollbar-gutter:\s*stable/);
+  assert.match(css, /@media \(max-width: 840px\)/);
+
+  for (const area of ["mode", "action", "live", "analysis", "pv", "settings"]) {
+    assert.match(css, new RegExp(`grid-area:\\s*${area}`), `missing compact ${area} area`);
   }
 });

@@ -512,6 +512,22 @@ html.desktop-shell .desktop-only {
     overflow-x: hidden;
     overflow-y: auto;
     overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+    scrollbar-width: auto;
+}
+
+#panel::-webkit-scrollbar {
+    width: 9px;
+}
+
+#panel::-webkit-scrollbar-track {
+    border-radius: 999px;
+    background: rgba(104, 112, 123, 0.08);
+}
+
+#panel::-webkit-scrollbar-thumb {
+    border: 2px solid transparent;
+    background-clip: padding-box;
 }
 
 .panel-section {
@@ -1759,8 +1775,8 @@ html.desktop-shell .desktop-only {
     }
 }
 
-/* Tablet and phone */
-@media (max-width: 768px) {
+/* Tablet and phone. Keep the document scrollable before the desktop grid gets too narrow. */
+@media (max-width: 840px) {
     body,
     #app {
         height: auto;
@@ -1962,7 +1978,7 @@ html.desktop-shell .desktop-only {
     }
 }
 
-@media (max-height: 560px) and (orientation: landscape) and (min-width: 769px) and (max-width: 1699px) {
+@media (max-height: 560px) and (orientation: landscape) and (min-width: 841px) and (max-width: 1699px) {
     #header {
         height: 46px;
     }
@@ -1976,6 +1992,305 @@ html.desktop-shell .desktop-only {
     #panel {
         width: 350px;
         flex-basis: 350px;
+    }
+}
+
+/*
+ * Compact desktop workspace.
+ *
+ * A 900x650 native window cannot use the phone layout, while one tall sidebar
+ * makes half of the controls look missing. Give the sidebar more horizontal
+ * room and arrange every functional card in two short columns instead. Text
+ * hints are reduced, but no action or setting is removed.
+ */
+@media (min-width: 841px) and (max-width: 1280px),
+       (min-width: 841px) and (max-width: 1699px) and (max-height: 900px) {
+    #main-content {
+        display: grid;
+        grid-template-columns: minmax(280px, 1fr) clamp(500px, 42vw, 660px);
+        gap: 8px;
+        padding: 7px 8px;
+    }
+
+    #board-area {
+        width: 100%;
+        min-width: 0;
+    }
+
+    #panel {
+        width: auto;
+        max-height: 100%;
+        display: grid;
+        flex-basis: auto;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        grid-template-rows: auto auto minmax(70px, 1fr) auto;
+        grid-template-areas:
+            "mode action"
+            "live action"
+            "analysis pv"
+            "analysis settings";
+        gap: 6px;
+        padding-right: 6px;
+        overflow-x: hidden;
+        overflow-y: auto;
+    }
+
+    .mode-card {
+        grid-area: mode;
+    }
+
+    .action-card {
+        grid-area: action;
+    }
+
+    .live-review-card {
+        grid-area: live;
+    }
+
+    .analysis-card {
+        grid-area: analysis;
+        display: flex;
+        min-height: 0;
+        flex-direction: column;
+        overflow: hidden;
+    }
+
+    .pv-card {
+        grid-area: pv;
+        min-height: 0;
+        overflow-y: auto;
+    }
+
+    .settings-card {
+        grid-area: settings;
+    }
+
+    .panel-section {
+        min-width: 0;
+        min-height: 0;
+        align-self: stretch;
+        padding: 10px;
+        border-radius: 15px;
+    }
+
+    .settings-card {
+        padding: 0;
+    }
+
+    .section-heading {
+        gap: 6px;
+        margin-bottom: 6px;
+    }
+
+    .section-heading h2,
+    .live-review-card h2 {
+        font-size: clamp(16px, 1.1vw, 18px);
+    }
+
+    .eyebrow {
+        font-size: clamp(9px, 0.62vw, 10px);
+    }
+
+    .mode-buttons {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 5px;
+    }
+
+    .mode-btn:first-child {
+        grid-column: auto;
+    }
+
+    .mode-btn {
+        min-height: 62px;
+        flex-direction: column;
+        justify-content: center;
+        gap: 3px;
+        padding: 5px 3px;
+        text-align: center;
+    }
+
+    .mode-btn small,
+    .import-button small,
+    .ai-actions small,
+    .live-review-copy p,
+    .live-turn-control small,
+    .settings-note {
+        display: none;
+    }
+
+    .mode-symbol {
+        width: 25px;
+        height: 25px;
+        flex-basis: 25px;
+    }
+
+    .mode-btn b,
+    .import-button b,
+    .ai-actions b {
+        font-size: clamp(13px, 0.86vw, 14px);
+    }
+
+    .import-button {
+        min-height: 50px;
+        grid-template-columns: 26px 1fr auto;
+        gap: 6px;
+        margin-bottom: 5px;
+        padding: 6px 8px;
+    }
+
+    .button-icon {
+        width: 26px;
+        height: 26px;
+        font-size: 15px;
+    }
+
+    .button-arrow {
+        font-size: 18px;
+    }
+
+    .import-quick-actions {
+        gap: 5px;
+        margin-bottom: 4px;
+    }
+
+    .import-quick-actions button {
+        min-height: 34px;
+        gap: 3px;
+        padding: 0 4px;
+        font-size: clamp(11px, 0.75vw, 12px);
+    }
+
+    .paste-hint {
+        display: none;
+    }
+
+    .action-buttons {
+        gap: 5px;
+    }
+
+    .action-buttons button {
+        min-height: 43px;
+        padding: 4px 2px;
+        border-radius: 11px;
+        font-size: clamp(12px, 0.8vw, 13px);
+    }
+
+    .action-buttons button > span:first-child {
+        font-size: 16px;
+    }
+
+    .ai-actions {
+        gap: 5px;
+        margin-top: 5px;
+    }
+
+    .ai-actions button {
+        min-height: 48px;
+        gap: 5px;
+        padding: 5px 7px;
+        border-radius: 11px;
+    }
+
+    .ai-actions .button-icon {
+        width: 24px;
+        height: 24px;
+        flex-basis: 24px;
+    }
+
+    .live-review-copy {
+        gap: 7px;
+    }
+
+    .live-icon {
+        width: 30px;
+        height: 30px;
+        flex-basis: 30px;
+        font-size: 17px;
+    }
+
+    .live-review-footer {
+        gap: 6px;
+        margin-top: 6px;
+        padding-top: 6px;
+    }
+
+    .live-toggle {
+        min-height: 36px;
+        padding: 0 9px;
+        border-radius: 10px;
+        font-size: clamp(12px, 0.8vw, 13px);
+    }
+
+    .live-turn-control {
+        grid-template-columns: auto minmax(82px, 1fr);
+        gap: 5px;
+        margin-top: 6px;
+        padding-top: 6px;
+    }
+
+    .live-turn-control select {
+        min-height: 30px;
+        font-size: 11px;
+    }
+
+    #suggestions-list {
+        min-height: 0;
+        max-height: none;
+        flex: 1 1 auto;
+    }
+
+    .suggestion-item {
+        min-height: 36px;
+        padding: 5px;
+        font-size: clamp(11px, 0.75vw, 13px);
+    }
+
+    .suggestion-item .visits-count {
+        display: none;
+    }
+
+    .suggestion-item .move-name {
+        width: 32px;
+        flex-basis: 32px;
+    }
+
+    .suggestion-item .score-abs {
+        width: 36px;
+        flex-basis: 36px;
+    }
+
+    .suggestion-item .wr {
+        width: 38px;
+        flex-basis: 38px;
+    }
+
+    #pv-display {
+        max-height: 80px;
+        overflow-y: auto;
+        font-size: 11px;
+        line-height: 1.45;
+    }
+
+    .section-toggle {
+        min-height: 38px;
+        padding: 0 10px;
+        font-size: clamp(12px, 0.78vw, 13px);
+    }
+
+    .section-body {
+        padding: 0 10px 8px;
+    }
+
+    .setting-row {
+        min-height: 36px;
+        gap: 6px;
+        font-size: clamp(12px, 0.78vw, 13px);
+    }
+
+    .setting-row select {
+        min-height: 30px;
+        padding-left: 7px;
+        font-size: 11px;
     }
 }
 
