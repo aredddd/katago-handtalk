@@ -1361,6 +1361,31 @@ html.desktop-shell .desktop-only {
     padding: 6px 0;
 }
 
+.recognize-source-figure {
+    margin: 0 0 10px;
+}
+
+#recognize-source-preview {
+    width: 100%;
+    max-height: 116px;
+    display: block;
+    object-fit: contain;
+    border: 1px solid var(--glass-border);
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.35);
+}
+
+#recognize-source-preview[hidden] {
+    display: none;
+}
+
+.recognize-source-figure figcaption {
+    margin-top: 5px;
+    color: var(--text-muted);
+    font-size: 11px;
+    line-height: 1.4;
+}
+
 .guide-step {
     display: inline-block;
     margin-top: 10px;
@@ -1387,6 +1412,20 @@ html.desktop-shell .desktop-only {
     color: var(--text-muted);
     font-size: 12px;
     line-height: 1.55;
+}
+
+#recognize-uncertain-count {
+    margin-top: 8px;
+    padding: 6px 8px;
+    border-radius: 8px;
+    background: rgba(52, 199, 89, 0.10);
+    color: var(--text-secondary);
+    font-weight: 650;
+}
+
+#recognize-uncertain-count.has-uncertain {
+    background: rgba(255, 149, 0, 0.13);
+    color: #a85f00;
 }
 
 .recognize-guide select {

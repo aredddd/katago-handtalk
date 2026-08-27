@@ -249,9 +249,14 @@
                                 <canvas id="recognize-board-canvas" width="420" height="420" aria-label="识别结果；点击交叉点校正棋子"></canvas>
                             </div>
                             <aside class="recognize-guide">
+                                <figure class="recognize-source-figure">
+                                    <img id="recognize-source-preview" alt="导入的棋盘截图" hidden>
+                                    <figcaption class="i18n" data-key="recognizeCropHint">尽量只截棋盘区域，识别会更快、更准。</figcaption>
+                                </figure>
                                 <span class="guide-step">01</span>
                                 <h3>检查识别结果</h3>
                                 <p>点击识别错误的交叉点，可在空位、黑子、白子间循环切换。</p>
+                                <p id="recognize-uncertain-count" role="status" aria-live="polite"></p>
                                 <span class="guide-step">02</span>
                                 <h3>确认下一手</h3>
                                 <label for="recognize-next-player">轮到哪一方落子？</label>

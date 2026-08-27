@@ -8,11 +8,12 @@ engine and the server.
 
 import sys
 import logging
+import threading
 
 from app_factory import create_app
 from engine_lifecycle import start_engine
 from config import KATAGO_PATH, MODEL_PATH, PORT
-from noword_recognizer import NOWORD_AVAILABLE
+from noword_recognizer import NOWORD_AVAILABLE, warm_up_recognizer
 
 logging.basicConfig(
     level=logging.INFO,
@@ -35,6 +36,12 @@ if __name__ == "__main__":
 
     engine = app.extensions["engine"]
     if start_engine(engine):
+        if NOWORD_AVAILABLE:
+            threading.Thread(
+                target=warm_up_recognizer,
+                daemon=True,
+                name="recognizer-warmup",
+            ).start()
         print(f"\n  Server running at http://localhost:{PORT}\n")
         # This edition has no account layer, so never expose it to the LAN by
         # default.  The browser and engine both run on the same machine.

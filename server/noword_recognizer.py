@@ -27,6 +27,10 @@ logger = logging.getLogger(__name__)
 DEFAULT_IMAGE_SIZE = 1024
 MAX_INPUT_PIXELS = 40_000_000
 MAX_DETECTION_SIDE = 1600
+WARMUP_BOARD_SIDE = 800
+UNCERTAIN_CELL_CONFIDENCE = 0.75
+UNCERTAIN_CELL_MARGIN = 0.20
+SECOND_PASS_MAX_GRID_DISTANCE = 1.5
 MODELS_DIR = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
     "models", "image2sgf"
@@ -43,6 +47,8 @@ _stone_model = None
 _device = None
 _model_load_lock = threading.Lock()
 _inference_lock = threading.Lock()
+_warmup_lock = threading.Lock()
+_warmup_complete = threading.Event()
 
 Point = namedtuple('Point', ['x', 'y'])
 GTP_COLUMNS = "ABCDEFGHJKLMNOPQRSTUVWXYZ"
@@ -157,6 +163,58 @@ def _load_models():
         return _board_model, _stone_model
 
 
+def warm_up_recognizer():
+    """Load the vision stack and run its first CUDA kernels in the background.
+
+    Importing torch/torchvision and initializing CUDA dominates the first
+    recognition request on Windows.  This function is deliberately safe to
+    call more than once and never lets a warm-up failure stop the web server.
+    Real recognition and warm-up share the same inference lock, so model work
+    cannot overlap and exhaust laptop GPU memory.
+    """
+    if _warmup_complete.is_set() or not NOWORD_AVAILABLE:
+        return _warmup_complete.is_set()
+
+    with _warmup_lock:
+        if _warmup_complete.is_set():
+            return True
+        started = time.time()
+        try:
+            with _inference_lock:
+                if _warmup_complete.is_set():
+                    return True
+                board_model, stone_model = _load_models()
+                if board_model is None or stone_model is None:
+                    return False
+                _run_warmup_inference(board_model, stone_model)
+
+            _warmup_complete.set()
+            logger.info("noword recognizer warm-up complete in %.1fs", time.time() - started)
+            return True
+        except Exception:
+            logger.exception("noword recognizer warm-up failed; first request will retry")
+            return False
+
+
+def _run_warmup_inference(board_model, stone_model):
+    """Execute representative model shapes; split out for a cheap unit test."""
+    torch, _ = _ensure_torch()
+    device = _get_device()
+    # Match the two real inference shapes closely enough to trigger CUDA
+    # context creation, kernel selection, and memory planning.
+    with torch.inference_mode():
+        board_input = torch.zeros(
+            (1, 3, WARMUP_BOARD_SIDE, WARMUP_BOARD_SIDE),
+            device=device,
+        )
+        board_model(board_input)
+        stone_input = torch.zeros((19 * 19, 3, 45, 45), device=device)
+        stone_model(stone_input)
+    if device.type == "cuda":
+        torch.cuda.synchronize(device)
+    del board_input, stone_input
+
+
 # ============== Geometry helpers ==============
 
 class GridPosition:
@@ -218,7 +276,12 @@ class NpBoxPosition(BoxPosition):
 # ============== Core functions ==============
 
 def expand_image(pil_image):
-    """Pad the image to a square (centered, grey background)."""
+    """Pad the image to a square using the detector's neutral background.
+
+    The fixed mid-grey is intentional.  Tests with this app's pale desktop
+    background showed that colour-matched padding reduced real corner scores,
+    while the neutral training-style canvas scored the same boards higher.
+    """
     w, h = pil_image.size
     size = max(w, h)
     new_image = Image.new('RGB', (size, size), (128, 128, 128))
@@ -248,7 +311,7 @@ def detect_board_corners(board_model, image, expand=True):
         x_offset = y_offset = 0
 
     T = _torchvision.transforms
-    with torch.no_grad():
+    with torch.inference_mode():
         tensor = T.ToTensor()(img).unsqueeze(0).to(device)
         target = board_model(tensor)[0]
 
@@ -311,7 +374,10 @@ def classify_stones(stone_model, corrected_image):
     """
     Split the rectified 1024x1024 image into a 19x19 grid and classify each
     cell with EfficientNet B3.
-    Returns: results[19][19], each value = label (color = label >> 1).
+    The network has six labels because every colour can also carry a marker.
+    Marker is irrelevant here, so pair those labels into the three actual
+    colours before choosing a result.  Returns colour, confidence, and the
+    top-two probability margin for every intersection.
     """
     torch, _ = _ensure_torch()
     device = _get_device()
@@ -335,11 +401,43 @@ def classify_stones(stone_model, corrected_image):
                 ).squeeze(0)
             imgs[x + y * 19] = tile
 
-    with torch.no_grad():
+    with torch.inference_mode():
         imgs = imgs.to(device)
-        results = stone_model(imgs).argmax(1).cpu()
+        logits = stone_model(imgs)
+        colour_probabilities = _aggregate_marker_probabilities(torch.softmax(logits, dim=1))
+        confidence, results = colour_probabilities.max(dim=1)
+        top_two = colour_probabilities.topk(2, dim=1).values
+        margin = top_two[:, 0] - top_two[:, 1]
 
-    return results.reshape(19, 19)
+    return (
+        results.cpu().numpy().reshape(19, 19),
+        confidence.cpu().numpy().reshape(19, 19),
+        margin.cpu().numpy().reshape(19, 19),
+    )
+
+
+def _aggregate_marker_probabilities(probabilities):
+    """Merge marker/no-marker label pairs into empty/black/white scores."""
+    paired = probabilities.reshape(-1, 3, 2)
+    if isinstance(probabilities, np.ndarray):
+        return paired.sum(axis=2)
+    return paired.sum(dim=2)
+
+
+def _second_pass_geometry_is_plausible(boxes):
+    """Reject a second rectification that no longer resembles the target grid."""
+    if boxes is None or np.asarray(boxes).shape != (4, 4):
+        return False
+    box_pos = NpBoxPosition(width=DEFAULT_IMAGE_SIZE, size=19)
+    expected = np.array([
+        box_pos[18][0][:2],
+        box_pos[18][18][:2],
+        box_pos[0][0][:2],
+        box_pos[0][18][:2],
+    ], dtype=np.float32)
+    observed = np.asarray(boxes, dtype=np.float32)[:, :2]
+    max_distance = box_pos.grid_size * SECOND_PASS_MAX_GRID_DISTANCE
+    return bool(np.max(np.linalg.norm(observed - expected, axis=1)) <= max_distance)
 
 
 # ============== Main entry point ==============
@@ -419,55 +517,104 @@ def _recognize_board_noword_locked(image_bytes):
                 "error": f"Could not detect board corners: {str(e2)}"
             }
 
-    corner_conf = min(scores)
-    logger.info(f"Corner detection confidence: {[f'{s:.2f}' for s in scores]}")
+    # Never let a second pass turn a weak source frame into an apparently
+    # trustworthy one.  Source confidence is the gate used by live review;
+    # rectified confidence is reported separately for diagnostics.
+    source_scores = list(scores)
+    source_confidence = min(source_scores)
+    rectified_scores = list(scores)
+    logger.info(f"Source corner confidence: {[f'{s:.2f}' for s in source_scores]}")
 
     # If corner confidence is low, try a second pass
-    if corner_conf < 0.7:
+    if source_confidence < 0.7:
         try:
             corrected2, boxes2, scores2 = perspective_correct(board_model, corrected, expand=True)
-            if sum(scores2) > sum(scores):
+            if (sum(scores2) > sum(rectified_scores) and
+                    _second_pass_geometry_is_plausible(boxes2)):
                 corrected = corrected2
-                scores = scores2
+                rectified_scores = list(scores2)
                 logger.info(f"Second-pass improvement: {[f'{s:.2f}' for s in scores2]}")
+            elif sum(scores2) > sum(rectified_scores):
+                logger.warning("Rejected second-pass rectification with implausible geometry")
         except Exception:
             pass  # keep the first-pass result if the second pass fails
 
     # Step 2: classify each intersection
-    board_raw = classify_stones(stone_model, corrected)
+    stone_result = classify_stones(stone_model, corrected)
+    if isinstance(stone_result, tuple) and len(stone_result) == 3:
+        board_raw, cell_confidence_raw, cell_margin_raw = stone_result
+    else:
+        # Keep injected/test recognizers written for the older six-label API
+        # working while the production model uses aggregated colour output.
+        board_raw = np.asarray(stone_result) >> 1
+        cell_confidence_raw = np.ones((19, 19), dtype=np.float32)
+        cell_margin_raw = np.ones((19, 19), dtype=np.float32)
 
     # Convert to the standard format.
     # board_raw = results.reshape(19, 19), results[y][x]
     #   where y is box_pos' row axis (y=0 bottom, y=18 top)
     #         x is box_pos' col axis (x=0 left, x=18 right)
     # Our format: board[row][col], row 0 = top
-    # -> board[r][c] = results[18-r][c] >> 1
+    # -> board[r][c] = results[18-r][c]
     board = []
+    cell_confidence = []
+    cell_margin = []
+    uncertain_points = []
     for y in range(18, -1, -1):  # y=18 (top) -> y=0 (bottom)
         row = []
+        confidence_row = []
+        margin_row = []
         for x in range(19):
-            color = int(board_raw[y][x]) >> 1  # results[y][x] maps to box_pos[y][x]
+            color = int(board_raw[y][x])
+            point_confidence = float(cell_confidence_raw[y][x])
+            point_margin = float(cell_margin_raw[y][x])
             row.append(color)
+            confidence_row.append(round(point_confidence, 3))
+            margin_row.append(round(point_margin, 3))
+            if (point_confidence < UNCERTAIN_CELL_CONFIDENCE or
+                    point_margin < UNCERTAIN_CELL_MARGIN):
+                uncertain_points.append({
+                    "row": 18 - y,
+                    "col": x,
+                    "confidence": round(point_confidence, 3),
+                    "margin": round(point_margin, 3),
+                })
         board.append(row)
+        cell_confidence.append(confidence_row)
+        cell_margin.append(margin_row)
 
     elapsed = time.time() - t0
-    # The weakest corner is the limiting factor for perspective correction.
-    # An average could hide one badly detected corner.
-    confidence = min(scores)
+    # Ten percent of the board can contain visually ambiguous intersections;
+    # using the lower decile catches broad classification uncertainty without
+    # allowing one isolated point to make the entire frame read as 0%.
+    stone_confidence = float(np.quantile(cell_confidence_raw, 0.10))
+    confidence = min(source_confidence, stone_confidence)
+    rectified_confidence = min(rectified_scores)
 
     # Stats
     black_count = sum(1 for row in board for c in row if c == 1)
     white_count = sum(1 for row in board for c in row if c == 2)
     logger.info(f"noword CNN done: {black_count} black, {white_count} white, "
-                f"confidence {confidence:.2f}, {elapsed:.1f}s")
+                f"source {source_confidence:.2f}, stones {stone_confidence:.2f}, "
+                f"uncertain {len(uncertain_points)}, {elapsed:.1f}s")
+    # A successful real request is itself a complete warm-up.  This avoids a
+    # queued background dummy pass when the user imported a screenshot first.
+    _warmup_complete.set()
 
     return {
         "board": board,
         "boardSize": 19,
         "initialStones": board_to_initial_stones(board),
         "confidence": round(confidence, 3),
+        "source_confidence": round(source_confidence, 3),
+        "rectified_confidence": round(rectified_confidence, 3),
+        "stone_confidence": round(stone_confidence, 3),
         "method": "noword-cnn",
-        "corners_score": [round(s, 3) for s in scores],
+        "corners_score": [round(s, 3) for s in source_scores],
+        "rectified_corners_score": [round(s, 3) for s in rectified_scores],
+        "cell_confidence": cell_confidence,
+        "cell_margin": cell_margin,
+        "uncertain_points": uncertain_points,
         "time": round(elapsed, 2),
         "stats": {
             "black": black_count,

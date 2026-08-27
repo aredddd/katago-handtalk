@@ -33,7 +33,7 @@ from app_factory import create_app  # noqa: E402
 from config import KATAGO_PATH, MODEL_PATH, PORT  # noqa: E402
 from engine_lifecycle import monitor_engine, start_engine  # noqa: E402
 from events import Events  # noqa: E402
-from noword_recognizer import NOWORD_AVAILABLE  # noqa: E402
+from noword_recognizer import NOWORD_AVAILABLE, warm_up_recognizer  # noqa: E402
 
 
 def _open_browser_when_ready(url: str) -> None:
@@ -63,6 +63,17 @@ def main() -> int:
     print(f"  截图识别: {'可用' if NOWORD_AVAILABLE else '模型缺失'}")
     print("  退出   : 在此窗口按 Ctrl+C")
     print("=" * 62, flush=True)
+
+    # Importing PyTorch and creating the first CUDA kernels is much slower than
+    # normal recognition.  Start it immediately and overlap that work with the
+    # KataGo process startup, so screenshot import is warm by the time the user
+    # reaches it.  The daemon is best-effort and never blocks app startup.
+    if NOWORD_AVAILABLE:
+        threading.Thread(
+            target=warm_up_recognizer,
+            daemon=True,
+            name="recognizer-warmup",
+        ).start()
 
     if not start_engine(engine):
         print("\nKataGo 启动失败，请运行 setup-local.ps1 检查配置。", file=sys.stderr)

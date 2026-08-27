@@ -37,6 +37,9 @@
         confirmResign: "确定要认输并结束当前对局吗？", resigned: "棋认输",
         twoPasses: "双方连续停一手，对局结束",
         recognizing: "AI 正在识别棋盘，请稍候…", recognizeResult: "识别结果",
+        recognizeCropHint: "尽量只截棋盘区域，识别会更快、更准。",
+        recognizeCheckCount: "建议检查：{count} 处",
+        recognizeCheckClear: "未发现明显可疑点",
         uploadFailed: "上传失败", snipThenPaste: "截图完成后，回到页面按 Ctrl+V",
         pasteShortcut: "请先截图，然后回到页面按 Ctrl+V。",
         clipboardNoImage: "剪贴板里没有图片，请先截取棋盘。",
@@ -50,6 +53,7 @@
         liveTurnMismatch: "检测到落子方与当前手数不一致，请先校正轮到谁",
         liveIllegalChange: "检测到的变化无法按围棋规则复现，正在重新确认",
         liveRelocated: "检测到多手变化，已按当前画面重新同步",
+        liveNeedsResync: "检测到多处变化，请重新截图导入校正局面",
         liveUnsupported: "当前浏览器不支持屏幕共享，请使用最新版 Edge 或 Chrome。",
         liveDesktopUnsupported: "当前桌面环境不支持窗口共享，请使用系统截图导入，或在浏览器中打开实时复盘。",
         windowPin: "置顶", windowPinned: "已置顶",
@@ -103,6 +107,7 @@
             }
         }
         renderAlwaysOnTopButton();
+        if (recognizedBoard) updateRecognizeUncertainCount();
     }
 
     function toggleLang() {
@@ -739,14 +744,17 @@
     // ── Board recognition ─────────────────────────────────────────────────────
 
     let recognizedBoard = null;
+    let recognizedUncertainPoints = new Set();
     let manualRecognitionSeq = 0;
-    let manualRecognitionController = null;
+    let manualRecognitionBusy = false;
+    let recognitionSourcePreviewUrl = "";
 
     function bindRecognition() {
         const cameraInput = document.getElementById("camera-input");
         const modal       = document.getElementById("recognize-modal");
 
         document.getElementById("btn-camera").addEventListener("click", () => {
+            if (manualRecognitionBusy) return;
             cameraInput.value = ""; cameraInput.click();
         });
 
@@ -800,32 +808,78 @@
         return data;
     }
 
+    async function prepareManualRecognitionImage(file) {
+        if (!file || !file.type || !file.type.startsWith("image/")) return file;
+        let bitmap = null;
+        try {
+            bitmap = await createImageBitmap(file);
+            const maxSide = 1600;
+            const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height));
+            const canvas = document.createElement("canvas");
+            canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+            canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+            const context = canvas.getContext("2d", { alpha: false });
+            context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+            const blob = await new Promise((resolve) =>
+                canvas.toBlob(resolve, "image/jpeg", 0.90));
+            if (!blob) throw new Error("JPEG conversion failed");
+            const stem = (file.name || `board-${Date.now()}`).replace(/\.[^.]+$/, "");
+            return new File([blob], `${stem}.jpg`, {
+                type: "image/jpeg",
+                lastModified: file.lastModified || Date.now(),
+            });
+        } catch (error) {
+            // Decoding can fail for an uncommon clipboard format. Sending the
+            // original is preferable to making screenshot import unavailable.
+            console.warn("Screenshot optimization failed; using original image", error);
+            return file;
+        } finally {
+            if (bitmap && typeof bitmap.close === "function") bitmap.close();
+        }
+    }
+
+    function setManualRecognitionBusy(busy) {
+        manualRecognitionBusy = busy;
+        document.querySelectorAll("#btn-camera, #btn-snipping, #btn-paste, #btn-live-review")
+            .forEach((control) => { control.disabled = busy; });
+    }
+
+    function setRecognitionSourcePreview(file) {
+        if (recognitionSourcePreviewUrl) URL.revokeObjectURL(recognitionSourcePreviewUrl);
+        recognitionSourcePreviewUrl = "";
+        const preview = document.getElementById("recognize-source-preview");
+        if (!preview || !file) return;
+        recognitionSourcePreviewUrl = URL.createObjectURL(file);
+        preview.src = recognitionSourcePreviewUrl;
+        preview.hidden = false;
+    }
+
     async function uploadAndRecognize(file) {
-        if (liveReviewStream || liveReviewStarting) return;
+        if (liveReviewStream || liveReviewStarting || manualRecognitionBusy) return;
         const modal   = document.getElementById("recognize-modal");
         const loading = document.getElementById("recognize-loading");
         const result  = document.getElementById("recognize-result");
         const requestId = ++manualRecognitionSeq;
-        if (manualRecognitionController) manualRecognitionController.abort();
-        const controller = new AbortController();
-        manualRecognitionController = controller;
+        setManualRecognitionBusy(true);
+        setRecognitionSourcePreview(file);
 
         modal.style.display  = "flex";
         loading.style.display = "block";
         result.style.display  = "none";
 
         try {
-            const data = await recognizeImage(file, { signal: controller.signal });
+            const optimizedFile = await prepareManualRecognitionImage(file);
+            const data = await recognizeImage(optimizedFile);
             if (requestId !== manualRecognitionSeq) return;
             loading.style.display = "none";
             showRecognizeResult(data);
         } catch (err) {
-            if (err.name === "AbortError" || requestId !== manualRecognitionSeq) return;
+            if (requestId !== manualRecognitionSeq) return;
             loading.style.display = "none";
             alert(t("uploadFailed") + ": " + err.message);
             modal.style.display = "none";
         } finally {
-            if (requestId === manualRecognitionSeq) manualRecognitionController = null;
+            setManualRecognitionBusy(false);
         }
     }
 
@@ -833,15 +887,53 @@
         const result = document.getElementById("recognize-result");
         result.style.display = "block";
         recognizedBoard = data.board;
+        recognizedUncertainPoints = collectUncertainPoints(data);
 
-        const conf = Math.round(data.confidence * 100);
+        const conf = Math.round(Number(data.confidence) * 100);
         document.getElementById("recognize-confidence").textContent =
             `🧠 CNN | ${conf}%`;
         document.getElementById("recognize-auto-status").textContent =
             t("recognizeResult");
+        updateRecognizeUncertainCount();
 
         initRecognizeCanvas();
         drawRecognizeCanvas(recognizedBoard);
+    }
+
+    function collectUncertainPoints(data) {
+        const boardData = Array.isArray(data.board) ? data.board : [];
+        const points = new Set();
+        const addPoint = (row, col) => {
+            row = Number(row); col = Number(col);
+            if (Number.isInteger(row) && Number.isInteger(col) &&
+                row >= 0 && row < boardData.length &&
+                col >= 0 && col < (boardData[row] || []).length) {
+                points.add(`${row},${col}`);
+            }
+        };
+        for (const point of (Array.isArray(data.uncertain_points) ? data.uncertain_points : [])) {
+            if (Array.isArray(point)) addPoint(point[0], point[1]);
+            else if (point && typeof point === "object")
+                addPoint(point.row ?? point.y, point.col ?? point.x);
+        }
+        for (let row = 0; row < boardData.length; row++) {
+            for (let col = 0; col < boardData[row].length; col++) {
+                const confidence = Number(data.cell_confidence?.[row]?.[col]);
+                const margin = Number(data.cell_margin?.[row]?.[col]);
+                if ((Number.isFinite(confidence) && confidence < 0.75) ||
+                    (Number.isFinite(margin) && margin < 0.20)) addPoint(row, col);
+            }
+        }
+        return points;
+    }
+
+    function updateRecognizeUncertainCount() {
+        const count = document.getElementById("recognize-uncertain-count");
+        if (!count) return;
+        count.textContent = recognizedUncertainPoints.size
+            ? t("recognizeCheckCount").replace("{count}", recognizedUncertainPoints.size)
+            : t("recognizeCheckClear");
+        count.classList.toggle("has-uncertain", recognizedUncertainPoints.size > 0);
     }
 
     let _recognizeCanvasSize = 0;
@@ -868,6 +960,8 @@
             const row       = Math.round((my - padding) / cellSize);
             if (row >= 0 && row < size && col >= 0 && col < size) {
                 recognizedBoard[row][col] = (recognizedBoard[row][col] + 1) % 3;
+                recognizedUncertainPoints.delete(`${row},${col}`);
+                updateRecognizeUncertainCount();
                 drawRecognizeCanvas(recognizedBoard);
             }
         };
@@ -914,6 +1008,16 @@
                     ctx.fillStyle = "rgba(255,255,255,0.5)"; ctx.fill();
                 }
             }
+        }
+
+        ctx.strokeStyle = "#ff9500";
+        ctx.lineWidth = Math.max(2, cellSize * 0.10);
+        for (const key of recognizedUncertainPoints) {
+            const [row, col] = key.split(",").map(Number);
+            const px = padding + col * cellSize, py = padding + row * cellSize;
+            ctx.beginPath();
+            ctx.arc(px, py, cellSize * 0.52, 0, Math.PI * 2);
+            ctx.stroke();
         }
     }
 
@@ -1191,7 +1295,7 @@
         ).forEach((control) => { control.disabled = active; });
     }
 
-    function scheduleLiveFrame(delay = 3000) {
+    function scheduleLiveFrame(delay = 1200) {
         if (!liveReviewStream) return;
         liveReviewTimer = setTimeout(captureLiveFrame, delay);
     }
@@ -1207,7 +1311,7 @@
         }
 
         liveReviewBusy = true;
-        let nextFrameDelay = 3000;
+        let nextFrameDelay = 1200;
         try {
             // Downscale large desktop captures; the detector internally works at
             // 1024 px, so sending a 4K frame only wastes transfer and decode time.
@@ -1226,15 +1330,23 @@
             const data = await recognizeImage(blob, { signal: controller.signal });
             if (generation !== liveReviewGeneration || !liveReviewStream) return;
 
-            const confidence = Number(data.confidence) || 0;
-            if (confidence < 0.6) {
+            const sourceConfidence = Number(data.source_confidence ?? data.confidence) || 0;
+            const rectifiedConfidence = Number(
+                data.rectified_confidence ?? data.confidence
+            ) || 0;
+            // Full-window captures in this UI commonly score 0.60-0.65 on the
+            // original frame even when the geometrically checked second pass is
+            // exact.  Keep obviously unsafe historical cases (<0.55) out while
+            // allowing those real desktop layouts through.
+            if (sourceConfidence < 0.55 || rectifiedConfidence < 0.70) {
                 nextFrameDelay = 1200;
                 setLiveReviewState(true,
-                    `${t("liveLowConfidence")} · ${Math.round(confidence * 100)}%`);
+                    `${t("liveLowConfidence")} · ${Math.round(sourceConfidence * 100)}%`);
                 return;
             }
 
-            const signature = JSON.stringify(data.board);
+            const stableBoard = stabilizeLiveBoard(data, liveLastBoard);
+            const signature = JSON.stringify(stableBoard);
             const previousSignature = liveLastBoard ? JSON.stringify(liveLastBoard) : "";
             if (signature === previousSignature) {
                 livePendingSignature = "";
@@ -1252,24 +1364,24 @@
                 livePendingCount = 1;
             }
             if (livePendingCount < 2) {
-                nextFrameDelay = 800;
+                nextFrameDelay = 350;
                 setLiveReviewState(true, t("liveVerifying"));
                 return;
             }
 
-            const sync = applyLivePosition(data.board);
+            const sync = applyLivePosition(stableBoard);
             if (!sync.accepted) {
                 nextFrameDelay = 1200;
                 setLiveReviewState(true, t(sync.statusKey));
                 return;
             }
-            liveLastBoard = cloneBoard(data.board);
+            liveLastBoard = cloneBoard(stableBoard);
             livePendingSignature = "";
             livePendingCount = 0;
             document.getElementById("live-next-player").value = String(board.currentPlayer);
             const statusKey = sync.statusKey || "liveSynced";
             setLiveReviewState(true,
-                `${t(statusKey)} · ${Math.round(confidence * 100)}%`);
+                `${t(statusKey)} · ${Math.round(sourceConfidence * 100)}%`);
         } catch (err) {
             if (err.name !== "AbortError" && generation === liveReviewGeneration) {
                 nextFrameDelay = 2000;
@@ -1286,6 +1398,23 @@
 
     function cloneBoard(source) {
         return source.map((row) => row.slice());
+    }
+
+    function stabilizeLiveBoard(data, previous) {
+        const current = cloneBoard(data.board);
+        if (!previous || previous.length !== current.length) return current;
+        for (let row = 0; row < current.length; row++) {
+            if (!Array.isArray(previous[row]) || previous[row].length !== current[row].length) continue;
+            for (let col = 0; col < current[row].length; col++) {
+                if (current[row][col] === previous[row][col]) continue;
+                const confidence = Number(data.cell_confidence?.[row]?.[col]);
+                const margin = Number(data.cell_margin?.[row]?.[col]);
+                const lowConfidence = Number.isFinite(confidence) && confidence < 0.85;
+                const lowMargin = Number.isFinite(margin) && margin < 0.30;
+                if (lowConfidence || lowMargin) current[row][col] = previous[row][col];
+            }
+        }
+        return current;
     }
 
     function boardsEqual(left, right) {
@@ -1327,11 +1456,10 @@
 
         const transition = findLiveMoveTransition(liveLastBoard, current);
         if (!transition) {
-            // Multiple moves may happen while the shared window is hidden or
-            // recognition is busy. Re-anchor deliberately to the user's side-to-
-            // move selector instead of guessing from unreliable stone counts.
-            loadRecognizedBoard(current, selectedPlayer, true);
-            return { accepted: true, statusKey: "liveRelocated" };
+            // Never replace the complete review tree from an ambiguous frame.
+            // The first stable frame is allowed to anchor above; later multi-
+            // point changes require an explicit screenshot correction instead.
+            return { accepted: false, statusKey: "liveNeedsResync" };
         }
         if (board.currentPlayer !== transition.color) {
             return { accepted: false, statusKey: "liveTurnMismatch" };
@@ -1354,8 +1482,14 @@
 
     function closeRecognizeModal() {
         manualRecognitionSeq++;
-        if (manualRecognitionController) manualRecognitionController.abort();
-        manualRecognitionController = null;
+        recognizedUncertainPoints.clear();
+        if (recognitionSourcePreviewUrl) URL.revokeObjectURL(recognitionSourcePreviewUrl);
+        recognitionSourcePreviewUrl = "";
+        const preview = document.getElementById("recognize-source-preview");
+        if (preview) {
+            preview.removeAttribute("src");
+            preview.hidden = true;
+        }
         document.getElementById("recognize-modal").style.display = "none";
     }
 

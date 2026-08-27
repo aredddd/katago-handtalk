@@ -35,6 +35,8 @@ test("beginner controls and analysis surfaces stay available", () => {
     "pv-display",
     "recognize-modal",
     "recognize-next-player",
+    "recognize-source-preview",
+    "recognize-uncertain-count",
   ];
   for (const id of requiredIds) {
     assert.match(index, new RegExp(`id=["']${id}["']`), `missing #${id}`);
@@ -68,7 +70,33 @@ test("screenshots can be selected, snipped, or pasted from the clipboard", () =>
   assert.match(app, /addEventListener\("paste"/);
   assert.match(app, /imageFromClipboardData/);
   assert.match(app, /manualRecognitionSeq/);
-  assert.match(app, /manualRecognitionController\.abort/);
+  assert.match(app, /manualRecognitionBusy/);
+  assert.match(app, /if \(liveReviewStream \|\| liveReviewStarting \|\| manualRecognitionBusy\) return/);
+  assert.equal(app.includes("manualRecognitionController"), false);
+});
+
+test("manual recognition optimizes screenshots and surfaces uncertain intersections", () => {
+  assert.match(app, /prepareManualRecognitionImage/);
+  assert.match(app, /const maxSide = 1600/);
+  assert.match(app, /canvas\.toBlob\(resolve, "image\/jpeg", 0\.90\)/);
+  assert.match(app, /Screenshot optimization failed; using original image/);
+  assert.match(app, /data\.cell_confidence/);
+  assert.match(app, /data\.cell_margin/);
+  assert.match(app, /data\.uncertain_points/);
+  assert.match(app, /recognizedUncertainPoints\.delete/);
+  assert.match(app, /ctx\.strokeStyle = "#ff9500"/);
+  assert.match(css, /#recognize-uncertain-count\.has-uncertain/);
+});
+
+test("live review gates source quality and rejects ambiguous multi-point re-anchors", () => {
+  assert.match(app, /sourceConfidence < 0\.55 \|\| rectifiedConfidence < 0\.70/);
+  assert.match(app, /function scheduleLiveFrame\(delay = 1200\)/);
+  assert.match(app, /nextFrameDelay = 350/);
+  assert.match(app, /function stabilizeLiveBoard/);
+  assert.match(app, /confidence < 0\.85/);
+  assert.match(app, /margin < 0\.30/);
+  assert.match(app, /return \{ accepted: false, statusKey: "liveNeedsResync" \}/);
+  assert.doesNotMatch(app, /loadRecognizedBoard\(current, selectedPlayer, true\);\s*return \{ accepted: true, statusKey: "liveRelocated" \}/);
 });
 
 test("AI responses are position-scoped and hidden review shortcuts stay removed", () => {
@@ -85,7 +113,8 @@ test("new beginner and live-review strings exist in both languages", () => {
     "position", "resign", "confirmResign", "screenshotImport",
     "liveStart", "liveStop", "liveIdle", "liveRecognizing", "liveSynced",
     "snipThenPaste", "pasteShortcut", "clipboardNoImage",
-    "liveTurnMismatch", "liveIllegalChange", "liveRelocated",
+    "recognizeCropHint", "recognizeCheckCount", "recognizeCheckClear",
+    "liveTurnMismatch", "liveIllegalChange", "liveRelocated", "liveNeedsResync",
   ];
   for (const key of keys) {
     assert.ok(zh[key], `missing zh.${key}`);
