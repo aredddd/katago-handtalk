@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import json
+import logging
 from pathlib import Path
 
 import pytest
@@ -45,6 +46,49 @@ def test_resolve_project_root_accepts_cli_and_environment(tmp_path, monkeypatch)
 def test_resolve_project_root_rejects_incomplete_directory(tmp_path):
     with pytest.raises(dl.LauncherError, match="项目目录无效"):
         dl.resolve_project_root(tmp_path)
+
+
+def test_webview2_dpi_override_detection_only_blocks_live_runtime():
+    values = [
+        (r"C:\Apps\Other.exe", "HIGHDPIAWARE"),
+        (r"C:\WebView\msedgewebview2.exe", "~ HIGHDPIAWARE"),
+        (r"C:\Old\msedgewebview2.exe", "HIGHDPIAWARE"),
+        (r"C:\WebView\msedgewebview2.exe", 123),
+    ]
+
+    assert dl.find_webview2_dpi_overrides(
+        values,
+        path_exists=lambda value: value.startswith(r"C:\WebView"),
+    ) == [(r"C:\WebView\msedgewebview2.exe", "~ HIGHDPIAWARE")]
+
+
+def test_webview2_dpi_override_has_visible_launcher_error(monkeypatch):
+    monkeypatch.setattr(
+        dl,
+        "find_webview2_dpi_overrides",
+        lambda: [(r"C:\WebView\msedgewebview2.exe", "HIGHDPIAWARE")],
+    )
+
+    with pytest.raises(dl.LauncherError, match="桌面窗口黑屏"):
+        dl.ensure_webview2_compatibility()
+
+
+def test_pywebview_errors_share_desktop_session_log(tmp_path):
+    log_file = tmp_path / "desktop.log"
+    dl.configure_logging(log_file)
+    try:
+        logging.getLogger("pywebview").error("WebView2 initialization failed: 0x8007139F")
+        for handler in logging.getLogger("pywebview").handlers:
+            handler.flush()
+
+        contents = log_file.read_text(encoding="utf-8")
+        assert "pywebview" in contents
+        assert "0x8007139F" in contents
+    finally:
+        for logger in (dl.LOGGER, logging.getLogger("pywebview")):
+            for handler in list(logger.handlers):
+                handler.close()
+                logger.removeHandler(handler)
 
 
 @pytest.mark.parametrize(

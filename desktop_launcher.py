@@ -26,7 +26,7 @@ import urllib.request
 from ctypes import wintypes
 from dataclasses import dataclass
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import Any, Callable, Mapping, Sequence
 
 
@@ -40,6 +40,9 @@ DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 5000
 DEFAULT_STARTUP_TIMEOUT = 240.0
 MUTEX_NAME = r"Local\KataGoHandTalk.Desktop.v1"
+APPCOMPAT_LAYERS_KEY = (
+    r"Software\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers"
+)
 SNIPPING_TOOL_URI = (
     "ms-screenclip://capture/image?rectangle&enabledModes="
     "SnippingAllModes&user-agent=KataGoHandTalk"
@@ -152,16 +155,80 @@ def create_session_log(log_dir: Path | None = None) -> Path:
 
 
 def configure_logging(log_file: Path) -> None:
-    """Configure this module's logger without disturbing server/test logging."""
+    """Write launcher and pywebview diagnostics to the same session log."""
     log_file.parent.mkdir(parents=True, exist_ok=True)
-    LOGGER.setLevel(logging.INFO)
-    LOGGER.propagate = False
-    for handler in list(LOGGER.handlers):
-        handler.close()
-        LOGGER.removeHandler(handler)
-    handler = logging.FileHandler(log_file, encoding="utf-8")
-    handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
-    LOGGER.addHandler(handler)
+    formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+    for logger in (LOGGER, logging.getLogger("pywebview")):
+        logger.setLevel(logging.INFO)
+        logger.propagate = False
+        for handler in list(logger.handlers):
+            handler.close()
+            logger.removeHandler(handler)
+        handler = logging.FileHandler(log_file, encoding="utf-8")
+        handler.setFormatter(formatter)
+        logger.addHandler(handler)
+
+
+def _read_appcompat_layers() -> list[tuple[str, object]]:
+    """Read current-user compatibility overrides without mutating Windows."""
+    if os.name != "nt":
+        return []
+    try:
+        import winreg
+
+        key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, APPCOMPAT_LAYERS_KEY)
+    except (ImportError, OSError):
+        return []
+
+    values: list[tuple[str, object]] = []
+    try:
+        index = 0
+        while True:
+            try:
+                name, value, _kind = winreg.EnumValue(key, index)
+            except OSError:
+                break
+            values.append((name, value))
+            index += 1
+    finally:
+        winreg.CloseKey(key)
+    return values
+
+
+def find_webview2_dpi_overrides(
+    layer_values: Sequence[tuple[str, object]] | None = None,
+    *,
+    path_exists: Callable[[str], bool] | None = None,
+) -> list[tuple[str, str]]:
+    """Find live WebView2 AppCompat DPI flags known to break controllers."""
+    values = _read_appcompat_layers() if layer_values is None else layer_values
+    exists = path_exists or (lambda value: Path(value).is_file())
+    conflicts: list[tuple[str, str]] = []
+    for executable, raw_flags in values:
+        if PureWindowsPath(str(executable)).name.casefold() != "msedgewebview2.exe":
+            continue
+        if not isinstance(raw_flags, str) or "HIGHDPIAWARE" not in raw_flags.upper():
+            continue
+        if not exists(str(executable)):
+            continue
+        conflicts.append((str(executable), raw_flags))
+    return conflicts
+
+
+def ensure_webview2_compatibility() -> None:
+    """Fail visibly instead of opening a black window for a known DPI conflict."""
+    conflicts = find_webview2_dpi_overrides()
+    if not conflicts:
+        return
+    executable, flags = conflicts[0]
+    raise LauncherError(
+        "检测到 Windows 为 WebView2 强制启用了高 DPI 兼容模式，"
+        "这会导致桌面窗口黑屏。\n\n"
+        f"文件：{executable}\n"
+        f"兼容设置：{flags}\n\n"
+        "请在该文件的“属性 > 兼容性 > 更改高 DPI 设置”中取消覆盖，"
+        "然后重新打开手谈 KataGo。"
+    )
 
 
 def load_always_on_top(preferences_file: Path) -> bool:
@@ -1282,6 +1349,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 0
         project_root = resolve_project_root(args.project_root)
         LOGGER.info("Project root: %s", project_root)
+        ensure_webview2_compatibility()
         try:
             import webview  # type: ignore[import-not-found]
         except ImportError as exc:
