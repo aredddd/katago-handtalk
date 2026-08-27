@@ -144,9 +144,10 @@
     let liveLastBoard = null;
     let liveReviewStarting = false;
     let liveReviewGeneration = 0;
+    let liveVideoFrameSequence = 0;
     let liveReviewAbortController = null;
-    let livePendingSignature = "";
-    let livePendingCount = 0;
+    let liveResumeBaseline = null;
+    const liveReviewTracker = new LiveReviewState.Tracker();
     let confirmDialogResolver = null;
     let confirmDialogTrigger = null;
     let confirmDialogConfig = null;
@@ -364,10 +365,15 @@
         else requestAnalysis();
     }
 
+    function clearLiveResumeBaseline() {
+        liveResumeBaseline = null;
+    }
+
     function handleUserMove(x, y) {
         if (isThinking || gameOver || liveReviewStream || liveReviewStarting) return;
         if (gameMode === "free-play") {
             if (board.tryMove(x, y)) {
+                clearLiveResumeBaseline();
                 invalidateAnalysisResults();
                 clearAnalysisPanels();
                 board.draw();
@@ -381,6 +387,7 @@
         if (gameMode === "play-white" && board.currentPlayer !== 2) return;
 
         if (board.tryMove(x, y)) {
+            clearLiveResumeBaseline();
             invalidateAnalysisResults();
             clearAnalysisPanels();
             board.draw();
@@ -425,6 +432,7 @@
 
         const pos = board.gtpToBoard(data.move);
         if (pos && board.tryMove(pos.x, pos.y)) {
+            clearLiveResumeBaseline();
             clearAnalysisPanels();
             board.draw();
             updateMoveCount();
@@ -605,6 +613,7 @@
     }
 
     function recordPass() {
+        clearLiveResumeBaseline();
         clearAnalysisPanels();
         board.passMove();
         board.draw();
@@ -767,6 +776,7 @@
 
         // Action buttons
         document.getElementById("btn-undo").addEventListener("click", () => {
+            clearLiveResumeBaseline();
             invalidatePendingAi();
             invalidateAnalysisResults();
             gameOver = false;
@@ -812,6 +822,7 @@
                 danger: true,
             });
             if (!accepted) return;
+            clearLiveResumeBaseline();
             invalidatePendingAi();
             invalidateAnalysisResults();
             if (socket && socket.connected) socket.emit(EVENTS.CANCEL);
@@ -879,6 +890,8 @@
     }
 
     function newGame() {
+        clearLiveResumeBaseline();
+        liveReviewTracker.reset();
         invalidatePendingAi();
         invalidateAnalysisResults();
         isThinking = false;
@@ -933,7 +946,10 @@
         });
 
         document.getElementById("btn-recognize-confirm").addEventListener("click", () => {
-            if (recognizedBoard) { loadRecognizedBoard(recognizedBoard); closeRecognizeModal(); }
+            if (recognizedBoard) {
+                loadRecognizedBoard(recognizedBoard, null, false, true);
+                closeRecognizeModal();
+            }
         });
     }
 
@@ -1171,7 +1187,12 @@
         }
     }
 
-    function loadRecognizedBoard(boardData, nextPlayerOverride = null, analyzeOnly = false) {
+    function loadRecognizedBoard(
+        boardData,
+        nextPlayerOverride = null,
+        analyzeOnly = false,
+        trustForLive = false,
+    ) {
         const size       = boardData.length;
         const nextPlayer = nextPlayerOverride ||
             parseInt(document.getElementById("recognize-next-player").value);
@@ -1187,6 +1208,13 @@
         board.currentPlayer = nextPlayer;
         board.setInitialStonesFromBoard();
         document.getElementById("board-size").value = String(size);
+        document.getElementById("live-next-player").value = String(nextPlayer);
+        if (trustForLive) {
+            liveResumeBaseline = {
+                board: LiveReviewState.cloneBoard(boardData),
+                nextPlayer,
+            };
+        }
         clearAnalysisPanels(true);
         board.draw(); updateMoveCount();
         setStatus("online", t("boardLoaded"));
@@ -1205,6 +1233,10 @@
         });
         document.getElementById("live-next-player").addEventListener("change", (event) => {
             const nextPlayer = parseInt(event.target.value);
+            if (!liveReviewStream) {
+                if (liveResumeBaseline) liveResumeBaseline.nextPlayer = nextPlayer;
+                return;
+            }
             if (!liveLastBoard || nextPlayer === board.currentPlayer) return;
             // A board image cannot reveal a pass. Changing this selector while
             // live records one explicit pass and preserves the variation.
@@ -1214,8 +1246,7 @@
             board.draw();
             updateMoveCount();
             requestAnalysis();
-            livePendingSignature = "";
-            livePendingCount = 0;
+            liveReviewTracker.commit(liveLastBoard);
         });
     }
 
@@ -1363,7 +1394,7 @@
         setLiveReviewState(true, t("liveStarting"));
         try {
             const stream = await navigator.mediaDevices.getDisplayMedia({
-                video: { frameRate: { ideal: 1, max: 2 } },
+                video: { frameRate: { ideal: 2, max: 2 } },
                 audio: false,
             });
             if (generation !== liveReviewGeneration) {
@@ -1382,9 +1413,21 @@
             video.srcObject = liveReviewStream;
             await video.play();
             if (generation !== liveReviewGeneration) return;
-            liveLastBoard = null;
-            livePendingSignature = "";
-            livePendingCount = 0;
+            const resumeBaseline = liveResumeBaseline;
+            liveLastBoard = resumeBaseline
+                ? LiveReviewState.cloneBoard(resumeBaseline.board)
+                : null;
+            liveResumeBaseline = null;
+            if (resumeBaseline && resumeBaseline.nextPlayer !== board.currentPlayer) {
+                board.passMove();
+                clearAnalysisPanels();
+                board.draw();
+                updateMoveCount();
+            }
+            gameOver = false;
+            hideGameMessage();
+            liveReviewTracker.reset(liveLastBoard);
+            if (liveLastBoard) requestAnalysis();
             liveReviewStream.getVideoTracks()[0].addEventListener("ended", stopLiveReview);
             scheduleLiveFrame(250);
         } catch (err) {
@@ -1415,12 +1458,19 @@
         }
         liveReviewStream = null;
         liveReviewBusy = false;
+        if (liveLastBoard) {
+            liveResumeBaseline = {
+                board: LiveReviewState.cloneBoard(liveLastBoard),
+                nextPlayer: board.currentPlayer,
+            };
+        }
         liveLastBoard = null;
-        livePendingSignature = "";
-        livePendingCount = 0;
+        liveReviewTracker.reset();
         if (wasActive) {
             invalidateAnalysisResults();
             if (socket && socket.connected) socket.emit(EVENTS.CANCEL);
+            setStatus("online", t("engineReady"));
+            requestAnalysis();
         }
         const video = document.getElementById("live-review-video");
         if (video) video.srcObject = null;
@@ -1445,9 +1495,39 @@
         ).forEach((control) => { control.disabled = active; });
     }
 
-    function scheduleLiveFrame(delay = 1200) {
+    function scheduleLiveFrame(delay = 350) {
         if (!liveReviewStream) return;
         liveReviewTimer = setTimeout(captureLiveFrame, delay);
+    }
+
+    async function waitForNextLiveVideoFrame(video) {
+        if (typeof video.requestVideoFrameCallback !== "function") return undefined;
+        return new Promise((resolve) => {
+            let callbackId = null;
+            let settled = false;
+            const finish = (frameId) => {
+                if (settled) return;
+                settled = true;
+                clearTimeout(timeoutId);
+                resolve(frameId);
+            };
+            const timeoutId = setTimeout(() => {
+                if (callbackId !== null &&
+                    typeof video.cancelVideoFrameCallback === "function") {
+                    video.cancelVideoFrameCallback(callbackId);
+                }
+                finish(null);
+            }, 1200);
+            callbackId = video.requestVideoFrameCallback((_time, metadata) => {
+                const presentedFrames = Number(metadata?.presentedFrames);
+                const mediaTime = Number(metadata?.mediaTime);
+                finish(Number.isFinite(presentedFrames)
+                    ? `frame-${presentedFrames}`
+                    : (Number.isFinite(mediaTime)
+                        ? `time-${mediaTime}`
+                        : `callback-${++liveVideoFrameSequence}`));
+            });
+        });
     }
 
     async function captureLiveFrame() {
@@ -1461,8 +1541,15 @@
         }
 
         liveReviewBusy = true;
-        let nextFrameDelay = 1200;
+        let nextFrameDelay = 350;
         try {
+            const frameId = await waitForNextLiveVideoFrame(video);
+            if (generation !== liveReviewGeneration || !liveReviewStream) return;
+            if (frameId === null) {
+                liveReviewTracker.rejectFrame("video-frame-timeout");
+                setLiveReviewState(true, t("liveWaiting"));
+                return;
+            }
             // Downscale large desktop captures; the detector internally works at
             // 1024 px, so sending a 4K frame only wastes transfer and decode time.
             const maxSide = 1600;
@@ -1470,7 +1557,7 @@
             canvas.width = Math.round(video.videoWidth * scale);
             canvas.height = Math.round(video.videoHeight * scale);
             canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);
-            const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.86));
+            const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.90));
             if (!blob) throw new Error("frame capture failed");
             if (generation !== liveReviewGeneration || !liveReviewStream) return;
 
@@ -1489,52 +1576,55 @@
             // exact.  Keep obviously unsafe historical cases (<0.55) out while
             // allowing those real desktop layouts through.
             if (sourceConfidence < 0.55 || rectifiedConfidence < 0.70) {
-                nextFrameDelay = 1200;
+                liveReviewTracker.rejectFrame("low-corner-confidence");
                 setLiveReviewState(true,
                     `${t("liveLowConfidence")} · ${Math.round(sourceConfidence * 100)}%`);
                 return;
             }
 
-            const stableBoard = stabilizeLiveBoard(data, liveLastBoard);
-            const signature = JSON.stringify(stableBoard);
-            const previousSignature = liveLastBoard ? JSON.stringify(liveLastBoard) : "";
-            if (signature === previousSignature) {
-                livePendingSignature = "";
-                livePendingCount = 0;
+            // Never combine low-confidence points with an older board. Each
+            // candidate is one complete, freshly recognized model result.
+            if (!liveChangedPointsAreReliable(data, liveLastBoard)) {
+                liveReviewTracker.rejectFrame("uncertain-changed-point");
+                setLiveReviewState(true, t("liveLowConfidence"));
+                return;
+            }
+
+            const current = LiveReviewState.cloneBoard(data.board);
+            const decision = liveReviewTracker.observe(current, { frameId });
+            if (decision.reason === "unchanged") {
                 setLiveReviewState(true, t("liveWaiting"));
                 return;
             }
-
-            // Corner confidence does not measure stone classification quality.
-            // Require every changed position to be identical in two consecutive
-            // recognitions before it can alter the review tree.
-            if (signature === livePendingSignature) livePendingCount++;
-            else {
-                livePendingSignature = signature;
-                livePendingCount = 1;
+            if (decision.reason === "move-rejected") {
+                setLiveReviewState(true, t(decision.statusKey || "liveIllegalChange"));
+                return;
             }
-            if (livePendingCount < 2) {
-                nextFrameDelay = 350;
-                setLiveReviewState(true, t("liveVerifying"));
+            if (decision.effect === "none") {
+                nextFrameDelay = 100;
+                const progress = decision.required
+                    ? ` · ${decision.streak}/${decision.required}`
+                    : "";
+                setLiveReviewState(true, `${t("liveVerifying")}${progress}`);
                 return;
             }
 
-            const sync = applyLivePosition(stableBoard);
+            const sync = applyLiveDecision(decision, current);
             if (!sync.accepted) {
-                nextFrameDelay = 1200;
+                nextFrameDelay = 100;
                 setLiveReviewState(true, t(sync.statusKey));
                 return;
             }
-            liveLastBoard = cloneBoard(stableBoard);
-            livePendingSignature = "";
-            livePendingCount = 0;
+            liveLastBoard = LiveReviewState.cloneBoard(current);
+            liveReviewTracker.commit(current);
             document.getElementById("live-next-player").value = String(board.currentPlayer);
             const statusKey = sync.statusKey || "liveSynced";
             setLiveReviewState(true,
                 `${t(statusKey)} · ${Math.round(sourceConfidence * 100)}%`);
         } catch (err) {
             if (err.name !== "AbortError" && generation === liveReviewGeneration) {
-                nextFrameDelay = 2000;
+                liveReviewTracker.rejectFrame("recognition-error");
+                nextFrameDelay = 1600;
                 setLiveReviewState(true, `${t("liveRetrying")}: ${err.message}`);
             }
         } finally {
@@ -1546,79 +1636,51 @@
         }
     }
 
-    function cloneBoard(source) {
-        return source.map((row) => row.slice());
-    }
-
-    function stabilizeLiveBoard(data, previous) {
-        const current = cloneBoard(data.board);
-        if (!previous || previous.length !== current.length) return current;
+    function liveChangedPointsAreReliable(data, previous) {
+        const current = data.board;
+        if (!LiveReviewState.isSquareBoard(current)) return false;
+        if (!previous) {
+            const stoneConfidence = Number(data.stone_confidence);
+            return Number.isFinite(stoneConfidence) && stoneConfidence >= 0.70;
+        }
+        if (!LiveReviewState.isSquareBoard(previous) || previous.length !== current.length) {
+            return false;
+        }
         for (let row = 0; row < current.length; row++) {
-            if (!Array.isArray(previous[row]) || previous[row].length !== current[row].length) continue;
             for (let col = 0; col < current[row].length; col++) {
                 if (current[row][col] === previous[row][col]) continue;
                 const confidence = Number(data.cell_confidence?.[row]?.[col]);
                 const margin = Number(data.cell_margin?.[row]?.[col]);
-                const lowConfidence = Number.isFinite(confidence) && confidence < 0.85;
-                const lowMargin = Number.isFinite(margin) && margin < 0.30;
-                if (lowConfidence || lowMargin) current[row][col] = previous[row][col];
+                if (!Number.isFinite(confidence) || confidence < 0.75 ||
+                    !Number.isFinite(margin) || margin < 0.20) return false;
             }
         }
-        return current;
+        return true;
     }
 
-    function boardsEqual(left, right) {
-        if (!left || !right || left.length !== right.length) return false;
-        return left.every((row, y) =>
-            row.length === right[y].length && row.every((stone, x) => stone === right[y][x])
-        );
-    }
-
-    function findLiveMoveTransition(previous, current) {
-        if (!previous || !current || previous.length !== current.length) return null;
-        let added = null;
-        const removed = [];
-        for (let y = 0; y < current.length; y++) {
-            if (!Array.isArray(previous[y]) || !Array.isArray(current[y]) ||
-                previous[y].length !== current[y].length) return null;
-            for (let x = 0; x < current.length; x++) {
-                const before = previous[y][x];
-                const after = current[y][x];
-                if (before === after) continue;
-                if (before === 0 && (after === 1 || after === 2)) {
-                    if (added) return null;
-                    added = { x, y, color: after };
-                }
-                else if (before !== 0 && after === 0) removed.push(before);
-                else return null;
-            }
-        }
-        if (!added || removed.some((color) => color === added.color)) return null;
-        return added;
-    }
-
-    function applyLivePosition(current) {
+    function applyLiveDecision(decision, current) {
         const selectedPlayer = parseInt(document.getElementById("live-next-player").value) || 1;
-        if (!liveLastBoard) {
+        if (decision.effect === "anchor") {
             loadRecognizedBoard(current, selectedPlayer, true);
             return { accepted: true, statusKey: "liveSynced" };
         }
-
-        const transition = findLiveMoveTransition(liveLastBoard, current);
-        if (!transition) {
-            // Never replace the complete review tree from an ambiguous frame.
-            // The first stable frame is allowed to anchor above; later multi-
-            // point changes require an explicit screenshot correction instead.
-            return { accepted: false, statusKey: "liveNeedsResync" };
+        if (decision.effect === "global-resync") {
+            loadRecognizedBoard(current, selectedPlayer, true);
+            return { accepted: true, statusKey: "liveRelocated" };
         }
+        const transition = decision.transition;
+        if (!transition) return { accepted: false, statusKey: "liveNeedsResync" };
         if (board.currentPlayer !== transition.color) {
+            liveReviewTracker.markMoveRejected("liveTurnMismatch");
             return { accepted: false, statusKey: "liveTurnMismatch" };
         }
-        if (!board.tryMove(transition.x, transition.y)) {
+        const preview = board.previewMove(transition.x, transition.y);
+        if (!preview || !LiveReviewState.boardsEqual(preview.board, current)) {
+            liveReviewTracker.markMoveRejected("liveIllegalChange");
             return { accepted: false, statusKey: "liveIllegalChange" };
         }
-        if (!boardsEqual(board.board, current)) {
-            board.undo();
+        if (!board.tryMove(transition.x, transition.y)) {
+            liveReviewTracker.markMoveRejected("liveIllegalChange");
             return { accepted: false, statusKey: "liveIllegalChange" };
         }
 

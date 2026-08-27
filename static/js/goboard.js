@@ -238,20 +238,16 @@ class GoBoard {
         return { stones, liberties };
     }
 
-    /** Try to play at (x, y); return whether it succeeded. */
-    tryMove(x, y) {
-        if (x < 0 || x >= this.size || y < 0 || y >= this.size) return false;
-        if (this.board[y][x] !== 0) return false;
-
+    /** Compute a legal move without changing history, UI, sounds, or analysis. */
+    previewMove(x, y) {
+        if (x < 0 || x >= this.size || y < 0 || y >= this.size) return null;
+        if (this.board[y][x] !== 0) return null;
         const color = this.currentPlayer;
         const opponent = color === 1 ? 2 : 1;
-
-        // Tentative move
         const tempBoard = this.board.map(r => [...r]);
         tempBoard[y][x] = color;
 
-        // Check for captures of opponent stones
-        let captured = [];
+        const captured = [];
         for (const [dx, dy] of [[-1,0],[1,0],[0,-1],[0,1]]) {
             const nx = x + dx, ny = y + dy;
             if (nx < 0 || nx >= this.size || ny < 0 || ny >= this.size) continue;
@@ -268,14 +264,21 @@ class GoBoard {
 
         // Check for suicide
         const selfGroup = this._getGroup(tempBoard, x, y);
-        if (selfGroup.liberties === 0) {
-            return false; // illegal point
-        }
+        if (selfGroup.liberties === 0) return null;
 
         // Positional superko (Chinese rules): a move may not recreate any
         // board already seen in this local variation.
         const nextHash = this._boardHash(tempBoard);
-        if (this.positionHistory.slice(0, this.viewIndex + 1).includes(nextHash)) return false;
+        if (this.positionHistory.slice(0, this.viewIndex + 1).includes(nextHash)) return null;
+
+        return { board: tempBoard, captured, nextHash, color, opponent };
+    }
+
+    /** Try to play at (x, y); return whether it succeeded. */
+    tryMove(x, y) {
+        const preview = this.previewMove(x, y);
+        if (!preview) return false;
+        const { board: tempBoard, captured, nextHash, color, opponent } = preview;
 
         // Move played — play a sound (capture sound if stones were captured, else stone sound)
         if (captured.length > 0) {

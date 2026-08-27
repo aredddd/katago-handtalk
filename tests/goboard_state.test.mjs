@@ -106,6 +106,25 @@ test("immediate ko recapture is rejected locally", () => {
   assert.equal(board.currentPlayer, 2);
 });
 
+test("previewing a move validates the result without mutating board history", () => {
+  const board = makeBoard();
+  board.board[1][1] = 2;
+  board.board[0][1] = 1;
+  board.board[1][0] = 1;
+  board.board[2][1] = 1;
+  board.currentPlayer = 1;
+  board.setInitialStonesFromBoard();
+  const originalHash = board._boardHash();
+
+  const preview = board.previewMove(2, 1);
+
+  assert.ok(preview);
+  assert.equal(preview.board[1][1], 0, "the surrounded white stone is captured in preview");
+  assert.equal(board._boardHash(), originalHash, "the visible board remains unchanged");
+  assert.equal(board.fullMoveHistory.length, 0);
+  assert.equal(board.currentPlayer, 1);
+});
+
 test("passing clears stale candidates, ownership, and pending moves", () => {
   const board = makeBoard();
   board.analysisData = { moves: [{ move: "D4" }] };

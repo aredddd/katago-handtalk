@@ -60,12 +60,13 @@ test("account and advanced AI-vs-AI UI are removed", () => {
 });
 
 test("live review reuses local recognition and never automates moves", () => {
+  assert.match(index, /js\/live-review-state\.js/);
   assert.match(app, /getDisplayMedia/);
   assert.match(app, /fetch\("\/api\/recognize"/);
   assert.match(app, /AbortController/);
   assert.match(app, /liveReviewGeneration/);
-  assert.match(app, /findLiveMoveTransition/);
-  assert.match(app, /livePendingCount < 2/);
+  assert.match(app, /new LiveReviewState\.Tracker\(\)/);
+  assert.match(app, /liveReviewTracker\.observe\(current, \{ frameId \}\)/);
   assert.match(app, /generation !== liveReviewGeneration \|\| !liveReviewStream/);
   assert.equal(app.includes("mouse_event"), false);
   assert.equal(app.includes("dispatchEvent(new MouseEvent"), false);
@@ -95,15 +96,23 @@ test("manual recognition optimizes screenshots and surfaces uncertain intersecti
   assert.match(css, /#recognize-uncertain-count\.has-uncertain/);
 });
 
-test("live review gates source quality and rejects ambiguous multi-point re-anchors", () => {
+test("live review verifies complete frames and recovers from skipped moves", () => {
   assert.match(app, /sourceConfidence < 0\.55 \|\| rectifiedConfidence < 0\.70/);
-  assert.match(app, /function scheduleLiveFrame\(delay = 1200\)/);
-  assert.match(app, /nextFrameDelay = 350/);
-  assert.match(app, /function stabilizeLiveBoard/);
-  assert.match(app, /confidence < 0\.85/);
-  assert.match(app, /margin < 0\.30/);
-  assert.match(app, /return \{ accepted: false, statusKey: "liveNeedsResync" \}/);
-  assert.doesNotMatch(app, /loadRecognizedBoard\(current, selectedPlayer, true\);\s*return \{ accepted: true, statusKey: "liveRelocated" \}/);
+  assert.match(app, /function scheduleLiveFrame\(delay = 350\)/);
+  assert.match(app, /requestVideoFrameCallback/);
+  assert.match(app, /liveReviewTracker\.observe\(current, \{ frameId \}\)/);
+  assert.match(app, /canvas\.toBlob\(resolve, "image\/jpeg", 0\.90\)/);
+  assert.match(app, /function liveChangedPointsAreReliable/);
+  assert.match(app, /stoneConfidence >= 0\.70/);
+  assert.match(app, /confidence < 0\.75/);
+  assert.match(app, /margin < 0\.20/);
+  assert.doesNotMatch(app, /function stabilizeLiveBoard/);
+  assert.match(app, /decision\.effect === "global-resync"/);
+  assert.match(app, /loadRecognizedBoard\(current, selectedPlayer, true\)/);
+  assert.match(app, /statusKey: "liveRelocated"/);
+  assert.match(app, /liveResumeBaseline/);
+  assert.match(app, /resumeBaseline\.nextPlayer !== board\.currentPlayer/);
+  assert.match(app, /loadRecognizedBoard\(recognizedBoard, null, false, true\)/);
 });
 
 test("AI responses are position-scoped and hidden review shortcuts stay removed", () => {
