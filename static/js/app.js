@@ -29,7 +29,8 @@
         connecting: "连接中…", connected: "已连接", disconnected: "连接已断开",
         engineReady: "引擎就绪", engineOffline: "引擎未运行", analyzing: "分析中…",
         aiThinking: "AI 思考中…", boardLoaded: "棋盘已加载", black: "黑", white: "白",
-        freePlay: "自由推演", playBlack: "执黑", playWhite: "执白", undo: "悔棋",
+        freePlay: "自由推演", playBlack: "执黑", playWhite: "执白", undo: "退一手",
+        stepBackHint: "每次退一手，可连续退到起始局面",
         pass: "停一手", analyze: "分析", newGame: "新对局", komi: "贴目",
         analysisOn: "开启分析", analysisOff: "关闭分析",
         analysisOnHint: "显示推荐下一手", analysisOffHint: "停止推荐与候选点",
@@ -102,6 +103,9 @@
         // Elements with class="i18n" and data-key
         document.querySelectorAll(".i18n[data-key]").forEach((el) => {
             el.textContent = t(el.dataset.key);
+        });
+        document.querySelectorAll("[data-title-key]").forEach((el) => {
+            el.title = t(el.dataset.titleKey);
         });
 
         // Live status text (re-apply current status if already set)
@@ -363,6 +367,27 @@
         }
         if (isAiTurn()) requestAiMove();
         else requestAnalysis();
+    }
+
+    function stepBackOneMove() {
+        if (!board || board.fullMoveHistory.length === 0) return false;
+
+        clearLiveResumeBaseline();
+        invalidatePendingAi();
+        invalidateAnalysisResults();
+        if (socket && socket.connected) socket.emit(EVENTS.CANCEL);
+
+        if (!board.undo()) return false;
+        gameOver = false;
+        hideGameMessage();
+        clearAnalysisPanels();
+        updateMoveCount();
+
+        // Stepping back is a review action. Normal turn continuation would
+        // make the AI immediately replay the move we just removed.
+        if (isAnalysisEnabled()) requestAnalysis();
+        else if (socket && socket.connected) setStatus("online", t("engineReady"));
+        return true;
     }
 
     function clearLiveResumeBaseline() {
@@ -663,6 +688,10 @@
         const moveTotal = document.getElementById("nav-move-total");
         if (moveNum) moveNum.textContent = viewIdx;
         if (moveTotal) moveTotal.textContent = "/ " + total;
+        const stepBack = document.getElementById("btn-undo");
+        if (stepBack) {
+            stepBack.disabled = viewIdx <= 0 || Boolean(liveReviewStream || liveReviewStarting);
+        }
         const slider = document.getElementById("nav-slider");
         if (slider) {
             slider.max = total;
@@ -776,19 +805,7 @@
 
         // Action buttons
         document.getElementById("btn-undo").addEventListener("click", () => {
-            clearLiveResumeBaseline();
-            invalidatePendingAi();
-            invalidateAnalysisResults();
-            gameOver = false;
-            hideGameMessage();
-            if (gameMode === "play-black" || gameMode === "play-white") {
-                board.undo(); board.undo();
-            } else {
-                board.undo();
-            }
-            updateMoveCount();
-            clearAnalysisPanels();
-            continueFromCurrentPosition();
+            stepBackOneMove();
         });
 
         document.getElementById("btn-pass").addEventListener("click", () => {
@@ -1491,8 +1508,10 @@
         }
         document.querySelectorAll(
             ".mode-btn, #btn-camera, #btn-snipping, #btn-paste, " +
-            "#btn-undo, #btn-pass, #btn-resign, #btn-new-game"
+            "#btn-pass, #btn-resign, #btn-new-game"
         ).forEach((control) => { control.disabled = active; });
+        const stepBack = document.getElementById("btn-undo");
+        if (stepBack) stepBack.disabled = active || !board || board.viewIndex <= 0;
     }
 
     function scheduleLiveFrame(delay = 350) {

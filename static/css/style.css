@@ -815,6 +815,17 @@ html.desktop-shell .desktop-only {
     background: var(--control-hover);
 }
 
+.action-buttons button:disabled {
+    cursor: not-allowed;
+    opacity: 0.42;
+}
+
+.action-buttons button:disabled:hover {
+    color: var(--text-secondary);
+    border-color: var(--glass-border);
+    background: var(--control-bg);
+}
+
 .action-buttons button:active,
 .ai-actions button:active,
 .live-toggle:active {

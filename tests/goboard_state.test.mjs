@@ -75,6 +75,36 @@ test("undo preserves an imported middle-game root and its next player", () => {
   assert.equal(board.moves.length, 0);
 });
 
+test("undo steps back one move at a time until the local root", () => {
+  const board = makeBoard();
+
+  assert.equal(board.tryMove(3, 3), true);   // black
+  board.passMove();                         // white
+  assert.equal(board.tryMove(15, 15), true); // black
+  assert.equal(board.fullMoveHistory.length, 3);
+
+  assert.equal(board.undo(), true);
+  assert.equal(board.fullMoveHistory.length, 2);
+  assert.equal(board.moves.length, 2);
+  assert.equal(board.currentPlayer, 1);
+  assert.equal(board.board[15][15], 0);
+
+  assert.equal(board.undo(), true);
+  assert.equal(board.fullMoveHistory.length, 1);
+  assert.equal(board.moves.length, 1);
+  assert.equal(board.currentPlayer, 2);
+
+  assert.equal(board.undo(), true);
+  assert.equal(board.fullMoveHistory.length, 0);
+  assert.equal(board.moves.length, 0);
+  assert.equal(board.currentPlayer, 1);
+  assert.equal(board.board[3][3], 0);
+  assert.equal(board.positionHistory.length, 1);
+
+  assert.equal(board.undo(), false);
+  assert.equal(board.fullMoveHistory.length, 0);
+});
+
 test("navigation replays imported-position moves using their stored colors", () => {
   const board = makeBoard();
   board.board[3][3] = 1;

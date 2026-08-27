@@ -139,6 +139,29 @@ test("analysis can be fully closed and safely reopened", () => {
   );
 });
 
+test("step back removes exactly one move and never asks the AI to replay it", () => {
+  assert.equal(zh.undo, "退一手");
+  assert.equal(en.undo, "Back one move");
+  assert.ok(zh.stepBackHint);
+  assert.ok(en.stepBackHint);
+  assert.match(index, /id="btn-undo"[^>]+disabled/);
+  assert.match(index, /data-key="undo">退一手</);
+
+  const handler = app.match(
+    /document\.getElementById\("btn-undo"\)\.addEventListener\("click", \(\) => \{[\s\S]*?\n        \}\);/,
+  )?.[0] || "";
+  assert.match(handler, /stepBackOneMove\(\)/);
+  assert.doesNotMatch(handler, /board\.undo\(\);\s*board\.undo\(\)/);
+
+  const stepBack = app.match(
+    /function stepBackOneMove\(\) \{[\s\S]*?\n    \}/,
+  )?.[0] || "";
+  assert.equal([...stepBack.matchAll(/board\.undo\(\)/g)].length, 1);
+  assert.match(stepBack, /socket\.emit\(EVENTS\.CANCEL\)/);
+  assert.match(stepBack, /requestAnalysis\(\)/);
+  assert.doesNotMatch(stepBack, /continueFromCurrentPosition\(\)/);
+});
+
 test("destructive confirmations use the styled accessible dialog", () => {
   assert.doesNotMatch(app, /\bconfirm\s*\(/);
   assert.match(index, /id="confirm-modal"[^>]+role="alertdialog"[^>]+aria-modal="true"/);
@@ -160,6 +183,7 @@ test("new beginner and live-review strings exist in both languages", () => {
     "analysisOn", "analysisOff", "analysisOnHint", "analysisOffHint",
     "confirmAction", "cancel", "newGameDialogTitle", "startNewGame",
     "resignDialogTitle", "confirmResignAction",
+    "stepBackHint",
   ];
   for (const key of keys) {
     assert.ok(zh[key], `missing zh.${key}`);
