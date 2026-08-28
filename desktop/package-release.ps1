@@ -171,7 +171,11 @@ foreach ($RequiredArtifactPath in @(
     (Join-Path $BuiltApp "app\run-local.py"),
     (Join-Path $BuiltApp "app\setup-local.ps1"),
     (Join-Path $BuiltApp "app\server"),
+    (Join-Path $BuiltApp "app\server\board_sizes.py"),
+    (Join-Path $BuiltApp "app\server\routes\practice.py"),
     (Join-Path $BuiltApp "app\static"),
+    (Join-Path $BuiltApp "app\static\js\practice-state.js"),
+    (Join-Path $BuiltApp "app\static\problems\manifest.json"),
     (Join-Path $BuiltApp "app\config"),
     (Join-Path $BuiltApp "app\third_party"),
     (Join-Path $BuiltApp "app\VERSION"),
@@ -196,6 +200,26 @@ foreach ($RequiredArtifactPath in @(
 )) {
     if (-not (Test-Path -LiteralPath $RequiredArtifactPath)) {
         throw "Desktop artifact is incomplete: $RequiredArtifactPath"
+    }
+}
+
+$ProblemManifestPath = Join-Path $BuiltApp "app\static\problems\manifest.json"
+try {
+    $ProblemManifest = Get-Content -LiteralPath $ProblemManifestPath -Raw | ConvertFrom-Json
+} catch {
+    throw "Bundled practice manifest is not valid JSON: $($_.Exception.Message)"
+}
+if (-not $ProblemManifest.problems -or $ProblemManifest.problems.Count -lt 1) {
+    throw "Bundled practice manifest contains no problems."
+}
+foreach ($Problem in $ProblemManifest.problems) {
+    $ProblemFile = [string]$Problem.file
+    if ([IO.Path]::GetFileName($ProblemFile) -ne $ProblemFile) {
+        throw "Practice manifest contains an unsafe file name: $ProblemFile"
+    }
+    $BundledProblemPath = Join-Path $BuiltApp ("app\static\problems\" + $ProblemFile)
+    if (-not (Test-Path -LiteralPath $BundledProblemPath -PathType Leaf)) {
+        throw "Desktop artifact is missing practice problem: $ProblemFile"
     }
 }
 

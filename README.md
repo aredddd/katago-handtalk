@@ -35,6 +35,7 @@ AI 推演都放在一个桌面窗口里；服务只监听 `127.0.0.1`，棋谱�
 %LOCALAPPDATA%\KataGoHandTalk\
 ├─ settings.json
 ├─ preferences.json
+├─ practice-progress.json
 ├─ logs\
 └─ runtime\
 ```
@@ -47,15 +48,39 @@ AI 推演都放在一个桌面窗口里；服务只监听 `127.0.0.1`，棋谱�
 > 本项目 Release 下载并先核对 `SHA256SUMS`。Windows 10 还需要 Microsoft Edge
 > WebView2 Runtime；Windows 11 通常已预装。
 
+> **版本提示：** 当前 Release `v0.1.0-beta.2` 仍是 19 路预览版。下面的 9 / 13 路
+> 棋盘与死活练习属于正在开发的 `0.2.0-dev.1`，目前可从 `feature/teaching-mode`
+> 源码分支构建，尚未作为正式 Release 发布。
+
 ## 功能
 
 - 自由推演，或选择执黑 / 执白和 AI 对弈
+- 普通对局和分析可选择 9 路、13 路或标准 19 路棋盘
+- 内置 24 道原创 9 路入门题，提供三级提示、重新挑战、本机练习进度和答题后 KataGo 复盘
 - 可连续“退一手”直到当前局面的起点，以及停一手、认输、新对局和全盘形势判断
 - 随时开启 / 关闭 KataGo 分析，查看推荐点、胜率、目差和主要变化
 - 从文件选择截图、拉起 Windows 截图工具，或直接粘贴剪贴板图片
 - 导入后先修正识别结果、指定下一手方，再从中局继续推演
 - 共享一个棋局窗口做近实时复盘；稳定确认后自动同步局面
 - 窗口置顶、macOS 风格毛玻璃界面，以及窄窗口纵向自适应布局
+
+## 棋盘尺寸与死活练习
+
+普通对局、AI 对弈和 KataGo 分析支持 **9×9、13×13、19×19**。可以在基础设置中
+直接切换，也可以在“新对局”弹窗里选择尺寸。截图导入和实时复盘仍只支持 19 路，
+选择小棋盘后对应入口会明确停用，避免把识别结果误当成有效局面。
+
+“死活练习”首版包含 24 道原创 9 路入门题，覆盖数气、打吃、提子、逃出打吃、
+连接、切断、两眼做活和真假眼。练习时由题目 SGF 的变化树判断对错，不会提前用
+KataGo 泄露答案：
+
+1. 第一级给出文字思路；
+2. 第二级在棋盘上标出关键范围；
+3. 第三级标出答案位置。
+
+答完后才可以启动 KataGo，查看当前终局的候选点和后续变化。答错、使用提示或查看
+答案会影响下次复习时间；进度只写入本机的 `practice-progress.json`。题目格式和原创
+内容要求见 [死活题库说明](static/problems/README.md)。
 
 ## 截图导入
 
@@ -121,14 +146,15 @@ cd katago-handtalk
 ```powershell
 python -m pip install --require-hashes -r requirements-dev.lock.txt
 python -m pytest -q
-node --test tests/frontend_contract.test.mjs tests/frontend_desktop_contract.test.mjs tests/goboard_state.test.mjs tests/live_review_state.test.mjs
+node --test tests/*.test.mjs
 ```
 
 ## 已知限制
 
 - 桌面壳当前仅支持 Windows 10 / 11，并依赖 Microsoft Edge WebView2 Runtime。
 - 第一次准备运行环境需要联网；当前便携包不是全离线安装包。
-- 识图只支持 19 路，复杂背景、过大透视或棋子反光时仍可能需要人工校正。
+- 普通对局支持 9 / 13 / 19 路；识图只支持 19 路，复杂背景、过大透视或棋子反光时仍可能需要人工校正。
+- 首版死活题以基础手筋为主，不含劫、双活，也不替代完整的规则课程。
 - `board.pth`、`stone.pth`、KataGo 引擎和棋力网络均不在仓库或 Release 中。
 - 当前 beta 未进行 Authenticode 签名。
 

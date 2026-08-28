@@ -23,6 +23,7 @@
     --danger: #d93b36;
     --warning: #b16b00;
     --success: #28a745;
+    --practice-tag-color: #1d6744;
     --border-color: rgba(60, 60, 67, 0.14);
     --border-strong: rgba(60, 60, 67, 0.23);
     --glass-border: rgba(255, 255, 255, 0.76);
@@ -62,6 +63,7 @@
         --danger: #ff6961;
         --warning: #ffd166;
         --success: #32d74b;
+        --practice-tag-color: #78dba7;
         --border-color: rgba(255, 255, 255, 0.12);
         --border-strong: rgba(255, 255, 255, 0.2);
         --glass-border: rgba(255, 255, 255, 0.15);
@@ -591,6 +593,10 @@ html.desktop-shell .desktop-only {
     grid-column: 1 / -1;
 }
 
+.mode-btn.practice-mode-btn {
+    grid-column: 1 / -1;
+}
+
 .mode-btn {
     width: 100%;
     min-height: 56px;
@@ -640,6 +646,16 @@ html.desktop-shell .desktop-only {
     border-radius: 10px;
     background: rgba(0, 122, 255, 0.09);
     font-size: 17px;
+}
+
+.mode-symbol.practice {
+    color: #218c5b;
+    border: 1px solid rgba(33, 140, 91, 0.26);
+    border-radius: 50%;
+    background: rgba(33, 140, 91, 0.1);
+    box-shadow: inset 0 0 0 5px rgba(33, 140, 91, 0.055);
+    font-size: 18px;
+    font-weight: 780;
 }
 
 .mode-btn b,
@@ -764,6 +780,366 @@ html.desktop-shell .desktop-only {
     box-shadow: inset 0 1px 0 var(--glass-highlight);
     font: 600 12px/1.35 ui-monospace, "SFMono-Regular", Consolas, monospace;
     text-align: center;
+}
+
+.import-button:disabled,
+.import-quick-actions button:disabled,
+.live-toggle:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+    transform: none;
+}
+
+/* Board-size selector */
+.setting-stack {
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.setting-label-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 8px;
+    color: var(--text-secondary);
+    font-size: 13px;
+}
+
+#board-size-value {
+    color: var(--text-primary);
+    font-weight: 720;
+}
+
+.board-size-options {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 7px;
+}
+
+.board-size-options button,
+.new-game-options button {
+    min-width: 0;
+    min-height: 52px;
+    padding: 7px 5px;
+    cursor: pointer;
+    color: var(--text-secondary);
+    border: 1px solid var(--glass-border);
+    border-radius: 12px;
+    background: var(--control-bg);
+    box-shadow: inset 0 1px 0 var(--glass-highlight);
+    font-weight: 720;
+    transition: border-color 150ms ease, color 150ms ease, background 150ms ease, transform 100ms ease;
+}
+
+.board-size-options button:hover,
+.new-game-options button:hover {
+    color: var(--text-primary);
+    border-color: var(--border-strong);
+    background: var(--control-hover);
+}
+
+.board-size-options button[aria-pressed="true"],
+.new-game-options button[aria-pressed="true"] {
+    color: var(--accent-deep);
+    border-color: color-mix(in srgb, var(--accent-color) 42%, transparent);
+    background: var(--accent-soft);
+    box-shadow: inset 0 1px 0 var(--glass-highlight), 0 0 0 2px var(--accent-soft);
+}
+
+.board-size-options button:active,
+.new-game-options button:active {
+    transform: scale(0.985);
+}
+
+.board-size-options small,
+.new-game-options small {
+    display: block;
+    margin-top: 2px;
+    color: var(--text-muted);
+    font-size: 11px;
+    font-weight: 560;
+}
+
+.board-size-setting > select {
+    display: none;
+}
+
+.board-size-setting .settings-note {
+    margin-top: 8px;
+}
+
+/* Guided practice */
+.practice-summary-card,
+.practice-card {
+    border-color: color-mix(in srgb, #29a66a 26%, var(--glass-border));
+    background:
+        linear-gradient(145deg, rgba(71, 188, 127, 0.08), transparent 48%),
+        var(--card-bg);
+}
+
+.practice-progress-count,
+.practice-position {
+    flex: 0 0 auto;
+    color: var(--accent-deep);
+    font-size: 13px;
+    font-weight: 760;
+    font-variant-numeric: tabular-nums;
+}
+
+.practice-progress-track {
+    height: 8px;
+    overflow: hidden;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--border-color) 75%, transparent);
+}
+
+.practice-progress-track span {
+    width: 0;
+    height: 100%;
+    display: block;
+    border-radius: inherit;
+    background: linear-gradient(90deg, #2da86c, #59c98d);
+    transition: width 280ms ease;
+}
+
+.practice-progress-copy {
+    margin-top: 9px;
+    color: var(--text-secondary);
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+.practice-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 10px;
+}
+
+.practice-tags span {
+    padding: 4px 8px;
+    color: var(--practice-tag-color);
+    border: 1px solid rgba(39, 151, 96, 0.2);
+    border-radius: 999px;
+    background: rgba(39, 151, 96, 0.08);
+    font-size: 12px;
+    font-weight: 650;
+}
+
+.practice-heading-row,
+.practice-hint-heading {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.practice-heading-row {
+    margin-bottom: 12px;
+}
+
+.practice-heading-row h2 {
+    margin-top: 4px;
+    color: var(--text-primary);
+    font-size: 21px;
+    line-height: 1.25;
+}
+
+.practice-goal-card {
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    padding: 11px 12px;
+    border: 1px solid rgba(39, 151, 96, 0.18);
+    border-radius: 14px;
+    background: rgba(39, 151, 96, 0.075);
+}
+
+.practice-goal-icon {
+    width: 34px;
+    height: 34px;
+    display: inline-flex;
+    flex: 0 0 34px;
+    align-items: center;
+    justify-content: center;
+    color: #28875a;
+    border-radius: 50%;
+    background: rgba(39, 151, 96, 0.12);
+    font-size: 18px;
+}
+
+.practice-goal-card small {
+    color: var(--text-muted);
+    font-size: 11px;
+}
+
+.practice-goal-card p {
+    margin-top: 2px;
+    color: var(--text-primary);
+    font-size: 14px;
+    font-weight: 650;
+    line-height: 1.45;
+}
+
+.practice-feedback {
+    margin-top: 10px;
+    padding: 11px 12px;
+    border: 1px solid var(--border-color);
+    border-radius: 14px;
+    background: var(--control-bg);
+}
+
+.practice-feedback strong {
+    display: block;
+    color: var(--text-primary);
+    font-size: 14px;
+}
+
+.practice-feedback p {
+    margin-top: 3px;
+    color: var(--text-secondary);
+    font-size: 12px;
+    line-height: 1.45;
+}
+
+.practice-feedback.success {
+    border-color: rgba(39, 151, 96, 0.3);
+    background: rgba(39, 151, 96, 0.1);
+}
+
+.practice-feedback.failure {
+    border-color: rgba(217, 59, 54, 0.26);
+    background: rgba(217, 59, 54, 0.08);
+}
+
+.practice-feedback.unknown {
+    border-color: rgba(177, 107, 0, 0.28);
+    background: rgba(177, 107, 0, 0.08);
+}
+
+.practice-hint-panel {
+    margin-top: 10px;
+    padding: 11px 12px;
+    border: 1px solid var(--glass-border);
+    border-radius: 14px;
+    background: var(--control-bg);
+}
+
+.practice-hint-heading strong {
+    display: block;
+    margin-top: 4px;
+    color: var(--text-primary);
+    font-size: 13px;
+}
+
+#practice-hint-counter {
+    color: var(--text-muted);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+}
+
+#practice-hint-text {
+    min-height: 38px;
+    margin: 9px 0;
+    color: var(--text-secondary);
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+#btn-practice-hint,
+.practice-actions button,
+.practice-analyze-button {
+    min-height: 46px;
+    cursor: pointer;
+    border: 1px solid var(--glass-border);
+    border-radius: 12px;
+    background: var(--control-bg);
+    box-shadow: inset 0 1px 0 var(--glass-highlight);
+    font-weight: 650;
+}
+
+#btn-practice-hint {
+    width: 100%;
+    color: var(--accent-deep);
+    border-color: rgba(0, 122, 255, 0.22);
+    background: var(--accent-soft);
+}
+
+.practice-actions {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 7px;
+    margin-top: 10px;
+}
+
+.practice-actions.analysis-open {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.practice-actions .btn-primary {
+    color: #fff;
+    border-color: var(--accent-color);
+    background: var(--accent-color);
+}
+
+.practice-analyze-button {
+    width: 100%;
+    min-height: 56px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 10px;
+    padding: 8px 11px;
+    text-align: left;
+}
+
+.practice-analyze-button > span:first-child {
+    width: 30px;
+    height: 30px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--accent-color);
+    border-radius: 10px;
+    background: var(--accent-soft);
+    font-size: 16px;
+}
+
+.practice-analyze-button b,
+.practice-analyze-button small {
+    display: block;
+}
+
+.practice-analyze-button small {
+    margin-top: 2px;
+    color: var(--text-muted);
+    font-size: 11px;
+}
+
+.practice-analyze-button:disabled {
+    cursor: not-allowed;
+    opacity: 0.48;
+}
+
+.new-game-options {
+    margin-top: 14px;
+    padding-top: 13px;
+    border-top: 1px solid var(--border-color);
+}
+
+.new-game-options > span {
+    display: block;
+    margin-bottom: 8px;
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-weight: 670;
+}
+
+.new-game-options > div {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 7px;
 }
 
 .button-icon {
@@ -1985,6 +2361,10 @@ html.desktop-shell .desktop-only {
         grid-column: 1 / -1;
     }
 
+    .mode-btn.practice-mode-btn {
+        grid-column: 1 / -1;
+    }
+
     .mode-btn {
         min-height: clamp(54px, 4.7vh, 62px);
         gap: 9px;
@@ -2083,6 +2463,31 @@ html.desktop-shell .desktop-only {
         grid-template-columns: auto minmax(120px, 1fr);
         margin-top: 9px;
         padding-top: 9px;
+    }
+
+    html.practice-active #main-content {
+        grid-template-areas:
+            "mode board practice"
+            "summary board practice"
+            "summary board practice";
+    }
+
+    html.practice-active .practice-summary-card {
+        grid-area: summary;
+        align-self: stretch;
+    }
+
+    html.practice-active .practice-card {
+        grid-area: practice;
+        align-self: stretch;
+        overflow-y: auto;
+    }
+
+    html.practice-active.practice-analysis-active #main-content {
+        grid-template-areas:
+            "mode board practice"
+            "suggestions board practice"
+            "pv board practice";
     }
 }
 
@@ -2183,15 +2588,19 @@ html.desktop-shell .desktop-only {
     }
 
     .mode-buttons {
-        grid-template-columns: repeat(3, minmax(0, 1fr));
+        grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
     .mode-btn:first-child {
         grid-column: auto;
     }
 
+    .mode-btn.practice-mode-btn {
+        grid-column: auto;
+    }
+
     .mode-btn {
-        min-height: 76px;
+        min-height: 72px;
         flex-direction: column;
         justify-content: center;
         gap: 6px;
@@ -2204,6 +2613,12 @@ html.desktop-shell .desktop-only {
 
     .action-buttons button {
         min-height: 52px;
+    }
+
+    .practice-card,
+    .practice-summary-card {
+        width: min(100%, 640px);
+        margin-inline: auto;
     }
 
     #suggestions-list {
@@ -2276,6 +2691,21 @@ html.desktop-shell .desktop-only {
 
     .analysis-hint {
         display: none;
+    }
+
+    .practice-actions {
+        grid-template-columns: 1fr;
+    }
+
+    .new-game-options > div,
+    .board-size-options {
+        gap: 5px;
+    }
+
+    .new-game-options button,
+    .board-size-options button {
+        min-height: 50px;
+        font-size: 12px;
     }
 
     .modal-overlay {

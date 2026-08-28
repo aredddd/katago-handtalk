@@ -57,3 +57,6 @@ jobs:
           tests/frontend_desktop_contract.test.mjs
           tests/goboard_state.test.mjs
           tests/live_review_state.test.mjs
+          tests/practice_integration_contract.test.mjs
+          tests/practice_state.test.mjs
+          tests/problem_pack.test.mjs

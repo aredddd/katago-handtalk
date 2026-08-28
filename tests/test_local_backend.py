@@ -9,6 +9,8 @@ import socketio as socketio_client
 from werkzeug.serving import make_server
 
 from app_factory import create_app
+from analysis_service import AnalysisParams
+from board_sizes import InvalidBoardSizeError, SUPPORTED_BOARD_SIZES
 from events import Events
 
 
@@ -103,6 +105,65 @@ def test_analysis_socket_needs_no_token(local_app):
     client.disconnect()
 
 
+@pytest.mark.parametrize("board_size", SUPPORTED_BOARD_SIZES)
+def test_analysis_socket_passes_supported_board_sizes_to_katago(
+    local_app, board_size
+):
+    app, socketio, engine = local_app
+    client = socketio.test_client(app)
+
+    client.emit(Events.ANALYZE, {
+        "reqId": f"board-{board_size}",
+        "boardSize": board_size,
+        "maxVisits": 8,
+    })
+
+    packets = client.get_received()
+    assert any(packet["name"] == Events.ANALYSIS for packet in packets)
+    assert engine.calls[-1]["board_size"] == board_size
+    client.disconnect()
+
+
+@pytest.mark.parametrize(
+    "board_size",
+    [True, False, "19", 19.0, None, 8, 10, 20, -1],
+)
+def test_analysis_params_strictly_rejects_invalid_board_sizes(board_size):
+    with pytest.raises(InvalidBoardSizeError, match="9, 13, 19"):
+        AnalysisParams.from_request({"boardSize": board_size}, 32)
+
+
+@pytest.mark.parametrize("event", [Events.ANALYZE, Events.PLAY_AI])
+@pytest.mark.parametrize("board_size", [True, "9", 9.0, 8, 20])
+def test_socket_rejects_invalid_board_size_without_calling_engine(
+    local_app, event, board_size
+):
+    app, socketio, engine = local_app
+    client = socketio.test_client(app)
+
+    client.emit(event, {
+        "reqId": "bad-board",
+        "boardSize": board_size,
+        "maxVisits": 8,
+    })
+
+    errors = [
+        packet["args"][0]
+        for packet in client.get_received()
+        if packet["name"] == Events.ERROR
+    ]
+    assert errors == [{
+        "message": "Invalid boardSize: expected one of 9, 13, 19",
+        "code": "invalid_board_size",
+        "field": "boardSize",
+        "supported": [9, 13, 19],
+        "reqId": "bad-board",
+        "kind": "analysis" if event == Events.ANALYZE else "ai",
+    }]
+    assert engine.calls == []
+    client.disconnect()
+
+
 def test_ai_move_echoes_request_id_and_empty_root_player(local_app):
     app, socketio, engine = local_app
     client = socketio.test_client(app)
@@ -165,7 +226,7 @@ def test_status_exposes_stable_desktop_service_marker(local_app):
     payload = response.get_json()
     assert payload["app"] == "katago-web-beginner"
     assert payload["api_version"] == 1
-    assert payload["version"] == "0.1.0-beta.2"
+    assert payload["version"] == "0.2.0-dev.1"
     assert "session_token" in payload
     assert payload["running"] is True
 
@@ -180,9 +241,13 @@ def test_config_reports_optional_recognition_as_a_capability():
     client = app.test_client()
 
     config = client.get("/api/config").get_json()
-    assert config["version"] == "0.1.0-beta.2"
+    assert config["version"] == "0.2.0-dev.1"
+    assert config["supported_board_sizes"] == [9, 13, 19]
+    assert config["capabilities"]["engine"]["supported_board_sizes"] == [9, 13, 19]
     assert config["capabilities"]["recognition"]["available"] is False
+    assert config["capabilities"]["recognition"]["supported_board_sizes"] == [19]
     assert config["capabilities"]["live_review"]["available"] is False
+    assert config["capabilities"]["live_review"]["supported_board_sizes"] == [19]
 
     unavailable = client.post(
         "/api/recognize",
@@ -260,7 +325,7 @@ def test_recognition_queue_is_bounded_to_one_in_flight_request():
     assert first_response[0].status_code == 200
 
 
-@pytest.mark.parametrize("board_size", ["13", "0", "100000"])
+@pytest.mark.parametrize("board_size", ["9", "13", "0", "100000"])
 def test_recognition_rejects_unsupported_sizes_before_inference(board_size):
     def must_not_run(*_args):
         raise AssertionError("recognizer must not run for unsupported board sizes")
@@ -281,6 +346,28 @@ def test_recognition_rejects_unsupported_sizes_before_inference(board_size):
     )
     assert response.status_code == 400
     assert "19x19" in response.get_json()["error"]
+
+
+def test_recognition_rejects_wrong_sized_matrix_and_overrides_metadata():
+    def wrong_size(_image, _size):
+        return {"board": [[0] * 13 for _ in range(13)], "boardSize": 13}
+
+    app, _ = create_app(
+        engine=FakeEngine(),
+        recognizer=wrong_size,
+        recognizer_available=True,
+    )
+    app.config.update(TESTING=True)
+    response = app.test_client().post(
+        "/api/recognize",
+        data={
+            "boardSize": "19",
+            "image": (io.BytesIO(b"fake-image"), "board.png"),
+        },
+        content_type="multipart/form-data",
+    )
+    assert response.status_code == 422
+    assert "exactly 19x19" in response.get_json()["error"]
 
 
 def test_recognition_upload_limit_and_cross_origin_guard(local_app):
@@ -404,3 +491,103 @@ def test_new_ai_request_cancels_and_suppresses_stale_analysis():
             client.disconnect()
         server.shutdown()
         server_thread.join(timeout=5)
+
+
+def test_practice_progress_is_saved_and_loaded_locally(local_app, tmp_path):
+    app, _socketio, _engine = local_app
+    app.extensions["practice_progress_store"].path = (
+        tmp_path / "practice-progress.json"
+    )
+    client = app.test_client()
+    record = {
+        "attempts": 2,
+        "successes": 1,
+        "streak": 1,
+        "lapses": 1,
+        "hints_used": 2,
+        "solved": True,
+        "last_result": "success",
+        "due_at": "2026-08-29T00:00:00.000Z",
+        "updated_at": "2026-08-28T00:00:00.000Z",
+    }
+
+    saved = client.put("/api/practice-progress/liberty-01", json=record)
+    assert saved.status_code == 200
+    assert saved.get_json() == {"problem_id": "liberty-01", "record": record}
+
+    loaded = client.get("/api/practice-progress")
+    assert loaded.status_code == 200
+    assert loaded.get_json() == {
+        "schema": 1,
+        "records": {"liberty-01": record},
+    }
+    assert (tmp_path / "practice-progress.json").is_file()
+
+
+@pytest.mark.parametrize(
+    ("problem_id", "record"),
+    [
+        ("../escape", {"attempts": 1}),
+        ("liberty-01", {"attempts": True}),
+        ("liberty-01", {"solved": "yes"}),
+        ("liberty-01", {"unexpected": 1}),
+        ("liberty-01", {"attempts": 1}),
+        ("liberty-01", None),
+    ],
+)
+def test_practice_progress_rejects_invalid_records(
+    local_app, tmp_path, problem_id, record
+):
+    app, _socketio, _engine = local_app
+    app.extensions["practice_progress_store"].path = (
+        tmp_path / "practice-progress.json"
+    )
+    response = app.test_client().put(
+        f"/api/practice-progress/{problem_id}", json=record
+    )
+    assert response.status_code in {400, 404, 405}
+    if response.status_code == 400:
+        assert response.get_json()["code"] == "invalid_practice_progress"
+
+
+def test_practice_progress_refuses_cross_origin_writes(local_app, tmp_path):
+    app, _socketio, _engine = local_app
+    app.extensions["practice_progress_store"].path = (
+        tmp_path / "practice-progress.json"
+    )
+    response = app.test_client().put(
+        "/api/practice-progress/liberty-01",
+        json={},
+        headers={"Origin": "https://example.test"},
+    )
+    assert response.status_code == 403
+    assert not (tmp_path / "practice-progress.json").exists()
+
+
+def test_corrupt_practice_progress_is_never_overwritten(local_app, tmp_path):
+    app, _socketio, _engine = local_app
+    path = tmp_path / "practice-progress.json"
+    path.write_text("{broken", encoding="utf-8")
+    app.extensions["practice_progress_store"].path = path
+    client = app.test_client()
+
+    loaded = client.get("/api/practice-progress")
+    assert loaded.status_code == 409
+    assert loaded.get_json()["code"] == "practice_progress_unreadable"
+
+    complete_record = {
+        "attempts": 1,
+        "successes": 1,
+        "streak": 1,
+        "lapses": 0,
+        "hints_used": 0,
+        "solved": True,
+        "last_result": "success",
+        "due_at": "2026-08-29T00:00:00.000Z",
+        "updated_at": "2026-08-28T00:00:00.000Z",
+    }
+    saved = client.put(
+        "/api/practice-progress/liberty-01", json=complete_record
+    )
+    assert saved.status_code == 409
+    assert path.read_text(encoding="utf-8") == "{broken"

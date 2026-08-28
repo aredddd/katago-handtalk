@@ -8,6 +8,7 @@ import time
 import pytest
 
 from exceptions import EngineNotRunningError
+from board_sizes import InvalidBoardSizeError, SUPPORTED_BOARD_SIZES
 from katago_engine import KataGoEngine
 
 
@@ -69,6 +70,45 @@ class _FakeProcess:
 
     def poll(self):
         return None
+
+
+@pytest.mark.parametrize("board_size", SUPPORTED_BOARD_SIZES)
+def test_query_serializes_supported_square_board_sizes(tmp_path, board_size):
+    cfg = tmp_path / "analysis.cfg"
+    cfg.write_text("", encoding="utf-8")
+    process = _FakeProcess(_LineStdout([]))
+    engine = KataGoEngine("katago", "model", str(cfg), max_wait=1)
+    engine.process = process
+    engine.running = True
+
+    def write_and_respond(data):
+        process.stdin.writes.append(data)
+        query = json.loads(data)
+        engine.response_queues[query["id"]].put({"id": query["id"]})
+
+    process.stdin.write = write_and_respond
+
+    result = engine.query([], board_size=board_size, query_id=f"board-{board_size}")
+
+    query = json.loads(process.stdin.writes[-1])
+    assert result == {"id": f"board-{board_size}"}
+    assert query["boardXSize"] == board_size
+    assert query["boardYSize"] == board_size
+
+
+@pytest.mark.parametrize("board_size", [True, "19", 19.0, 8, 20])
+def test_query_rejects_invalid_board_sizes_before_writing(tmp_path, board_size):
+    cfg = tmp_path / "analysis.cfg"
+    cfg.write_text("", encoding="utf-8")
+    process = _FakeProcess(_LineStdout([]))
+    engine = KataGoEngine("katago", "model", str(cfg), max_wait=1)
+    engine.process = process
+    engine.running = True
+
+    with pytest.raises(InvalidBoardSizeError):
+        engine.query([], board_size=board_size)
+
+    assert process.stdin.writes == []
 
 
 def test_black_reporting_config_is_not_inverted_when_white_to_move(tmp_path):

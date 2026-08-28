@@ -12,6 +12,7 @@ from urllib.parse import urlsplit
 from flask import Blueprint, current_app, request, jsonify
 
 from board_position import board_to_initial_stones
+from board_sizes import DEFAULT_BOARD_SIZE, RECOGNITION_BOARD_SIZES
 
 logger = logging.getLogger(__name__)
 recognition_bp = Blueprint("recognition", __name__)
@@ -30,10 +31,10 @@ def api_recognize():
             return jsonify({"error": "Cross-origin recognition is not allowed"}), 403
 
     try:
-        board_size = int(request.form.get("boardSize", 19))
+        board_size = int(request.form.get("boardSize", DEFAULT_BOARD_SIZE))
     except (TypeError, ValueError):
         return jsonify({"error": "Invalid boardSize"}), 400
-    if board_size != 19:
+    if board_size not in RECOGNITION_BOARD_SIZES:
         return jsonify({"error": "Screenshot recognition currently supports 19x19 only"}), 400
 
     if "image" not in request.files:
@@ -81,10 +82,16 @@ def api_recognize():
     board = result.get("board")
     if board and not result.get("error"):
         try:
-            result.setdefault("boardSize", len(board))
-            result.setdefault("initialStones", board_to_initial_stones(board))
+            if not isinstance(board, (list, tuple)) or len(board) != board_size:
+                raise ValueError(
+                    f"Recognized board must be exactly {board_size}x{board_size}"
+                )
+            result["boardSize"] = board_size
+            result["initialStones"] = board_to_initial_stones(board)
         except (TypeError, ValueError) as exc:
             logger.error("Board recognizer returned an invalid matrix: %s", exc)
             return jsonify({"error": f"Invalid recognized board: {exc}"}), 422
+    elif not result.get("error"):
+        return jsonify({"error": "Board recognition returned no board"}), 422
 
     return jsonify(result)

@@ -19,6 +19,7 @@ from collections import deque
 
 from katago_facade import KataGoFacade
 from exceptions import EngineNotRunningError, EngineTimeoutError, EngineQueryError
+from board_sizes import validate_board_size
 
 logger = logging.getLogger(__name__)
 
@@ -321,6 +322,8 @@ class KataGoEngine(KataGoFacade):
         """
         if query_id is None:
             query_id = self._next_id()
+
+        board_size = validate_board_size(board_size)
 
         query_obj = {
             "id": query_id,

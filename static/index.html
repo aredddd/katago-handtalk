@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <meta name="theme-color" content="#101713">
     <meta name="description" content="简洁、易用的本地 KataGo 围棋复盘工具">
-    <title>手谈 · KataGo 复盘</title>
+    <title>手谈 · KataGo HandTalk</title>
     <link rel="stylesheet" href="css/style.css">
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>●</text></svg>">
 </head>
@@ -89,6 +89,27 @@
                             <span class="mode-symbol stone white" aria-hidden="true"></span>
                             <span><b class="i18n" data-key="playWhite">执白对弈</b><small>AI 执黑，你执白</small></span>
                         </button>
+                        <button class="mode-btn practice-mode-btn" type="button" data-mode="practice" aria-pressed="false">
+                            <span class="mode-symbol practice" aria-hidden="true">◎</span>
+                            <span><b class="i18n" data-key="practiceMode">死活练习</b><small class="i18n" data-key="practiceModeHint">每天几题，把变化真正算清楚</small></span>
+                        </button>
+                    </div>
+                </section>
+
+                <section class="panel-section practice-summary-card practice-only" id="practice-summary-section" hidden>
+                    <div class="section-heading compact-heading">
+                        <div>
+                            <span class="eyebrow i18n" data-key="practiceToday">今日练习</span>
+                            <h2 class="i18n" data-key="practiceSteadyProgress">稳稳进步</h2>
+                        </div>
+                        <span id="practice-progress-count" class="practice-progress-count">0 / 24</span>
+                    </div>
+                    <div class="practice-progress-track" aria-hidden="true">
+                        <span id="practice-progress-bar"></span>
+                    </div>
+                    <p id="practice-progress-copy" class="practice-progress-copy">先完成一道题，进度只保存在这台电脑。</p>
+                    <div class="practice-tags" aria-label="练习内容" data-aria-label-key="practiceContents">
+                        <span class="i18n" data-key="practiceTagLiberties">数气</span><span class="i18n" data-key="practiceTagCaptures">提子</span><span class="i18n" data-key="practiceTagConnection">连接</span><span class="i18n" data-key="practiceTagLifeDeath">基础死活</span>
                     </div>
                 </section>
 
@@ -141,6 +162,52 @@
                             <button id="btn-free-after-error" type="button">改为自由推演</button>
                         </div>
                     </div>
+                </section>
+
+                <section class="panel-section practice-card practice-only" id="practice-section" hidden aria-labelledby="practice-title">
+                    <div class="practice-heading-row">
+                        <div>
+                            <span id="practice-level" class="eyebrow">入门 · 第 1 题</span>
+                            <h2 id="practice-title">正在准备练习…</h2>
+                        </div>
+                        <span id="practice-position" class="practice-position">1 / 24</span>
+                    </div>
+
+                    <div class="practice-goal-card">
+                        <span class="practice-goal-icon" aria-hidden="true">◉</span>
+                        <div>
+                            <small class="i18n" data-key="practiceGoalLabel">本题目标</small>
+                            <p id="practice-goal">请稍候，正在读取本地题库。</p>
+                        </div>
+                    </div>
+
+                    <div id="practice-feedback" class="practice-feedback neutral" role="status" aria-live="polite">
+                        <strong id="practice-feedback-title">先自己想一想</strong>
+                        <p id="practice-feedback-copy">练习时不会提前显示 KataGo 候选点。</p>
+                    </div>
+
+                    <div class="practice-hint-panel">
+                        <div class="practice-hint-heading">
+                            <div>
+                                <span class="eyebrow i18n" data-key="practiceTieredHints">分级提示</span>
+                                <strong id="practice-hint-stage">还没有使用提示</strong>
+                            </div>
+                            <span id="practice-hint-counter">0 / 3</span>
+                        </div>
+                        <p id="practice-hint-text" role="status" aria-live="polite" aria-atomic="true">先数气、观察断点，再决定落子。</p>
+                        <button id="btn-practice-hint" class="i18n" data-key="practiceHintButton" type="button">给我一点提示</button>
+                    </div>
+
+                    <div class="practice-actions">
+                        <button id="btn-practice-back" class="i18n" data-key="practiceBack" type="button" hidden>退一手</button>
+                        <button id="btn-practice-retry" class="i18n" data-key="practiceRetry" type="button">重新挑战</button>
+                        <button id="btn-practice-answer" class="i18n" data-key="practiceAnswer" type="button">查看答案</button>
+                        <button id="btn-practice-next" class="btn-primary i18n" data-key="practiceNext" type="button">下一题</button>
+                    </div>
+                    <button id="btn-practice-analyze" class="practice-analyze-button" type="button" disabled>
+                        <span aria-hidden="true">✦</span>
+                        <span><b class="i18n" data-key="practiceAnalyze">让 KataGo 再分析</b><small class="i18n" data-key="practiceAnalyzeHint">答完后查看候选点与后续变化</small></span>
+                    </button>
                 </section>
 
                 <section class="panel-section live-review-card" id="live-review-section">
@@ -204,6 +271,23 @@
                         <span class="toggle-icon" aria-hidden="true">▾</span>
                     </button>
                     <div id="settings-body" class="section-body">
+                        <div class="setting-stack board-size-setting">
+                            <div class="setting-label-row">
+                                <label for="board-size"><span class="i18n" data-key="boardSize">棋盘</span></label>
+                                <span id="board-size-value">19×19</span>
+                            </div>
+                            <div id="board-size-options" class="board-size-options" role="group" aria-label="选择棋盘尺寸">
+                                <button type="button" data-board-size="9" aria-pressed="false">9×9<small>入门</small></button>
+                                <button type="button" data-board-size="13" aria-pressed="false">13×13<small>进阶</small></button>
+                                <button type="button" data-board-size="19" aria-pressed="true">19×19<small>标准</small></button>
+                            </div>
+                            <select id="board-size" tabindex="-1" aria-hidden="true">
+                                <option value="9">9×9</option>
+                                <option value="13">13×13</option>
+                                <option value="19" selected>19×19</option>
+                            </select>
+                            <p id="board-size-note" class="settings-note">截图导入和实时复盘目前仅支持 19 路。</p>
+                        </div>
                         <div class="setting-row">
                             <label for="komi"><span class="i18n" data-key="komi">贴目</span></label>
                             <select id="komi">
@@ -229,10 +313,6 @@
                 </section>
 
                 <div class="hidden-controls" aria-hidden="true">
-                    <label for="board-size">棋盘</label>
-                    <select id="board-size" tabindex="-1">
-                        <option value="19" selected>19×19</option>
-                    </select>
                     <input type="checkbox" id="show-analysis" checked tabindex="-1">
                     <input type="checkbox" id="show-ownership" tabindex="-1">
                     <input type="checkbox" id="show-move-number" tabindex="-1">
@@ -310,6 +390,14 @@
                     </div>
                 </div>
                 <p id="confirm-message">当前棋局将被清空，此操作无法撤销。</p>
+                <div id="new-game-options" class="new-game-options" hidden>
+                    <span>棋盘尺寸</span>
+                    <div role="group" aria-label="新对局棋盘尺寸">
+                        <button type="button" data-new-game-size="9" aria-pressed="false">9×9<small>适合入门</small></button>
+                        <button type="button" data-new-game-size="13" aria-pressed="false">13×13<small>过渡练习</small></button>
+                        <button type="button" data-new-game-size="19" aria-pressed="true">19×19<small>标准棋盘</small></button>
+                    </div>
+                </div>
                 <div class="confirm-actions">
                     <button id="confirm-cancel" type="button">取消</button>
                     <button id="confirm-accept" class="btn-primary" type="button">开始新对局</button>
@@ -321,6 +409,7 @@
 
     <script src="vendor/socket.io.min.js"></script>
     <script src="js/live-review-state.js"></script>
+    <script src="js/practice-state.js"></script>
     <script src="js/goboard.js"></script>
     <script src="js/app.js"></script>
 </body>

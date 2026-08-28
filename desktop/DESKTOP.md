@@ -114,8 +114,8 @@ desktop-dist/KataGo-HandTalk/
 
 每个正式候选至少完成以下步骤：
 
-1. 确认根目录 `VERSION`、Release 标签和更新日志一致；`0.1.0-beta.2` 对应标签
-   `v0.1.0-beta.2`。
+1. 确认根目录 `VERSION`、Release 标签和更新日志一致；开发版（例如 `0.2.0-dev.1`）
+   必须先改为计划发布的版本，再创建完全一致的 `v<VERSION>` 标签。
 2. 运行 Python 与前端测试：
 
    ```powershell
@@ -125,7 +125,10 @@ desktop-dist/KataGo-HandTalk/
      tests/frontend_contract.test.mjs `
      tests/frontend_desktop_contract.test.mjs `
      tests/goboard_state.test.mjs `
-     tests/live_review_state.test.mjs
+     tests/live_review_state.test.mjs `
+     tests/practice_integration_contract.test.mjs `
+     tests/practice_state.test.mjs `
+     tests/problem_pack.test.mjs
    ```
 
 3. 确认 `git status --short` 无输出，再运行无参数的
@@ -133,12 +136,13 @@ desktop-dist/KataGo-HandTalk/
 4. 根据 `SHA256SUMS` 独立复核 ZIP 和外部 manifest：
 
    ```powershell
+   $Version = (Get-Content .\VERSION -Raw).Trim()
    Get-Content .\desktop-dist\release\SHA256SUMS
    Get-FileHash `
-     .\desktop-dist\release\KataGo-HandTalk-0.1.0-beta.2-windows-x64.zip `
+     ".\desktop-dist\release\KataGo-HandTalk-$Version-windows-x64.zip" `
      -Algorithm SHA256
    Get-FileHash `
-     .\desktop-dist\release\KataGo-HandTalk-0.1.0-beta.2-file-manifest.json `
+     ".\desktop-dist\release\KataGo-HandTalk-$Version-file-manifest.json" `
      -Algorithm SHA256
    ```
 
@@ -148,8 +152,9 @@ desktop-dist/KataGo-HandTalk/
 7. 首次配置分别验证：选择 KataGo exe、棋力网络、包内默认 analysis 配置；关闭识图
    可直接进入棋盘；若使用合法取得的识图权重，再验证 Auto / CUDA / CPU 中计划支持
    的路径。
-8. 验证基础对局、连续退一手、停一手、认输、新对局、分析开关、AI 走子、截图
-   导入 / 粘贴、窗口置顶、重新配置并重启，以及退出后清理后端。
+8. 验证 9 / 13 / 19 路基础对局、连续退一手、停一手、认输、新对局、分析开关、
+   AI 走子、24 题练习与答后推演、截图导入 / 粘贴、窗口置顶、重新配置并重启，
+   以及退出后清理后端。
 9. 验证错误态可恢复：无效 KataGo、无效网络、引擎启动失败、端口占用、无 WebView2、
    识图未配置 / 安装失败；检查“重试、重新选择、打开日志、关闭识图并继续”等动作
    在 `900×650`、`1280×720` 和 `1920×1080 @ 150%` 下均可见且可用。

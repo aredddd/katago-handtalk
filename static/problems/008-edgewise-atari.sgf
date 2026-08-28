@@ -1,0 +1,4 @@
+(;GM[1]FF[4]CA[UTF-8]AP[KataGo HandTalk:0.2]SZ[9]PL[W]AB[cc][dc]AW[bc][cb][cd][ec]C[白先，横向相连的黑棋还剩两口气。]
+(;W[db]TE[1]HO[S]C[堵住上方的气，黑棋两子被打成一气。])
+(;W[dd]TE[1]HO[S]C[堵住下方的气，黑棋两子同样被打吃。])
+(;W[ee]BM[1]HO[F]C[这里没有贴住黑棋，不能完成打吃。]))

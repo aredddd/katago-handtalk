@@ -24,6 +24,9 @@ from analysis_service import AnalysisService
 from sockets import register_socket_handlers
 from routes.pages import pages_bp
 from routes.recognition import recognition_bp
+from routes.practice import practice_bp
+from config import PRACTICE_PROGRESS_PATH
+from practice_progress import PracticeProgressStore
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +59,7 @@ def create_app(
     engine=None,
     recognizer: Optional[Callable] = None,
     recognizer_available: Optional[bool] = None,
+    practice_progress_path: Optional[str] = None,
     socketio_async_mode: str = "threading",
 ):
     """
@@ -117,9 +121,13 @@ def create_app(
     app.extensions["board_recognizer_reason"] = (
         None if app.extensions["board_recognizer_available"] else unavailable_reason
     )
+    app.extensions["practice_progress_store"] = PracticeProgressStore(
+        practice_progress_path or PRACTICE_PROGRESS_PATH
+    )
     # ── HTTP routes ─────────────────────────────────────────────────────────
     app.register_blueprint(pages_bp)
     app.register_blueprint(recognition_bp)
+    app.register_blueprint(practice_bp)
 
     # ── WebSocket handlers ──────────────────────────────────────────────────
     register_socket_handlers(socketio, service)

@@ -31,6 +31,7 @@ class GoBoard {
         this.hoveredCandidateIdx = -1; // index of the candidate move under the mouse
         this.selectedCandidateIdx = -1; // clicked/selected candidate (mobile)
         this.onCandidateHover = null; // callback
+        this.practiceOverlay = null; // { region: [{x,y}], answer: [{x,y}] }
 
         // Interaction
         this.hoverPos = null;
@@ -98,8 +99,12 @@ class GoBoard {
         this.initialPlayer = 1;
         this.positionHistory = [this._boardHash()];
         this.pendingMovePos = null;
+        this.practiceOverlay = null;
         this.hoverPos = null;
         this.keyboardPos = null;
+        if (typeof this.canvas.setAttribute === "function") {
+            this.canvas.setAttribute("aria-label", this._baseAriaLabel);
+        }
         this._initSize();
         this.draw();
         this._fireNavigate();
@@ -294,17 +299,36 @@ class GoBoard {
         return { board: tempBoard, captured, nextHash, color, opponent };
     }
 
+    /** Display or clear teaching hints without mixing them with AI candidates. */
+    setPracticeOverlay(overlay = null) {
+        if (!overlay) {
+            this.practiceOverlay = null;
+        } else {
+            const normalize = (points) => (Array.isArray(points) ? points : [])
+                .filter((point) => point && Number.isInteger(point.x) && Number.isInteger(point.y))
+                .filter((point) => point.x >= 0 && point.y >= 0 && point.x < this.size && point.y < this.size)
+                .map((point) => ({ x: point.x, y: point.y }));
+            this.practiceOverlay = {
+                region: normalize(overlay.region),
+                answer: normalize(overlay.answer),
+            };
+        }
+        this.draw();
+    }
+
     /** Try to play at (x, y); return whether it succeeded. */
-    tryMove(x, y) {
+    tryMove(x, y, { silent = false } = {}) {
         const preview = this.previewMove(x, y);
         if (!preview) return false;
         const { board: tempBoard, captured, nextHash, color, opponent } = preview;
 
         // Move played — play a sound (capture sound if stones were captured, else stone sound)
-        if (captured.length > 0) {
-            this._playCaptureSound();
-        } else {
-            this._playStoneSound();
+        if (!silent) {
+            if (captured.length > 0) {
+                this._playCaptureSound();
+            } else {
+                this._playStoneSound();
+            }
         }
         this.board = tempBoard;
         const colorStr = color === 1 ? "B" : "W";
@@ -493,6 +517,10 @@ class GoBoard {
 
         this._drawStones();
 
+        if (this.practiceOverlay) {
+            this._drawPracticeOverlay();
+        }
+
         if (this.showAnalysis && this.analysisData) {
             this._drawAnalysis();
         }
@@ -662,6 +690,40 @@ class GoBoard {
         ctx.arc(px, py, r, 0, Math.PI * 2);
         ctx.fill();
         ctx.globalAlpha = 1.0;
+    }
+
+    _drawPracticeOverlay() {
+        const overlay = this.practiceOverlay || {};
+        const region = Array.isArray(overlay.region) ? overlay.region : [];
+        const answer = Array.isArray(overlay.answer) ? overlay.answer : [];
+        const ctx = this.ctx;
+
+        ctx.save();
+        for (const point of region) {
+            const { px, py } = this.boardToPixel(point.x, point.y);
+            ctx.beginPath();
+            ctx.arc(px, py, Math.max(6, this.cellSize * 0.56), 0, Math.PI * 2);
+            ctx.fillStyle = "rgba(0, 122, 255, 0.10)";
+            ctx.fill();
+            ctx.lineWidth = Math.max(2, this.cellSize * 0.08);
+            ctx.strokeStyle = "rgba(0, 92, 190, 0.72)";
+            ctx.setLineDash([Math.max(3, this.cellSize * 0.2), Math.max(2, this.cellSize * 0.12)]);
+            ctx.stroke();
+        }
+
+        ctx.setLineDash([]);
+        for (const point of answer) {
+            if (this.board[point.y][point.x] !== 0) continue;
+            const { px, py } = this.boardToPixel(point.x, point.y);
+            ctx.beginPath();
+            ctx.arc(px, py, Math.max(5, this.cellSize * 0.34), 0, Math.PI * 2);
+            ctx.fillStyle = "rgba(0, 122, 255, 0.72)";
+            ctx.fill();
+            ctx.lineWidth = Math.max(1.5, this.cellSize * 0.055);
+            ctx.strokeStyle = "rgba(255, 255, 255, 0.92)";
+            ctx.stroke();
+        }
+        ctx.restore();
     }
 
     _drawKeyboardCursor() {

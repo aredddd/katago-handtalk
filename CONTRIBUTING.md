@@ -23,7 +23,7 @@ python -m venv .venv
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest -q
-node --test tests/frontend_contract.test.mjs tests/frontend_desktop_contract.test.mjs tests/goboard_state.test.mjs tests/live_review_state.test.mjs
+node --test tests/*.test.mjs
 ```
 
 测试使用假引擎和临时模型文件，不需要 KataGo、GPU 或真实权重。要手动运行完整
@@ -35,6 +35,8 @@ node --test tests/frontend_contract.test.mjs tests/frontend_desktop_contract.tes
 - 识图改动应覆盖文件导入、剪贴板、手动校正和实时重同步路径。
 - 不提交 `.pth`、`.bin.gz`、`katago.exe`、`.venv`、`.runtime` 或 `desktop-dist`。
 - 截图应去除账号、路径、通知和其他个人信息。
+- 死活题必须是可按 MIT 发布的原创内容，并通过 `tests/problem_pack.test.mjs`；格式约定见
+  [题库说明](static/problems/README.md)。
 - PR 描述写清改动、验证方式、已知限制和涉及的第三方来源。
 
 提交贡献即表示你有权提交这些内容，并同意将你拥有版权的原创贡献按根目录

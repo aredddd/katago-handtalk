@@ -22,6 +22,7 @@ from exceptions import (
 )
 from circuit_breaker import CircuitOpenError
 from analysis_service import AnalysisParams
+from board_sizes import InvalidBoardSizeError, SUPPORTED_BOARD_SIZES
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +32,24 @@ _ENGINE_ERRORS = (
 )
 
 PLAY_AI_DEFAULT_VISITS = 800
+
+
+def _emit_request_error(exc: Exception, *, req_id=None, kind=None) -> None:
+    """Emit a stable, machine-readable error for an invalid client payload."""
+    if isinstance(exc, InvalidBoardSizeError):
+        payload = {
+            "message": str(exc),
+            "code": exc.code,
+            "field": exc.field,
+            "supported": list(SUPPORTED_BOARD_SIZES),
+        }
+    else:
+        payload = {
+            "message": "Invalid request payload: expected an object",
+            "code": "invalid_request",
+        }
+    payload.update({"reqId": req_id, "kind": kind})
+    emit(Events.ERROR, payload)
 
 
 def _emit_engine_error(exc: Exception, *, req_id=None, kind=None) -> None:
@@ -115,7 +134,13 @@ def register_socket_handlers(socketio, service) -> None:
 
     def _run_analysis(data: dict, default_visits: int) -> None:
         """Run one analysis request with per-client single-flight semantics."""
-        req_id = data.get("reqId")
+        req_id = data.get("reqId") if isinstance(data, dict) else None
+        try:
+            params = AnalysisParams.from_request(data, default_visits)
+        except (InvalidBoardSizeError, TypeError) as exc:
+            _emit_request_error(exc, req_id=req_id, kind="analysis")
+            return
+
         if not service.is_ready():
             _emit_engine_error(EngineNotRunningError(), req_id=req_id, kind="analysis")
             return
@@ -123,7 +148,6 @@ def register_socket_handlers(socketio, service) -> None:
         sid    = request.sid
         query_id = _begin_query(sid, "analysis", req_id)
 
-        params = AnalysisParams.from_request(data, default_visits)
         logger.info(f"Analysis: {len(params.moves)} moves, visits={params.max_visits}")
 
         try:
@@ -147,14 +171,19 @@ def register_socket_handlers(socketio, service) -> None:
     @socketio.on(Events.PLAY_AI)
     def on_play_ai(data):
         """Local AI move request."""
-        req_id = data.get("reqId")
+        req_id = data.get("reqId") if isinstance(data, dict) else None
+        try:
+            params = AnalysisParams.from_request(data, PLAY_AI_DEFAULT_VISITS)
+        except (InvalidBoardSizeError, TypeError) as exc:
+            _emit_request_error(exc, req_id=req_id, kind="ai")
+            return
+
         if not service.is_ready():
             _emit_engine_error(EngineNotRunningError(), req_id=req_id, kind="ai")
             return
 
         sid = request.sid
         query_id = _begin_query(sid, "ai", req_id)
-        params = AnalysisParams.from_request(data, PLAY_AI_DEFAULT_VISITS)
         try:
             move = service.best_move(params, query_id=query_id)
         except _ENGINE_ERRORS as exc:

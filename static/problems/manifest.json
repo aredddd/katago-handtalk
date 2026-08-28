@@ -1,0 +1,558 @@
+{
+  "version": 1,
+  "boardSize": 9,
+  "problems": [
+    {
+      "id": "liberty-01",
+      "file": "001-last-liberty.sgf",
+      "title": "数气：最后一口",
+      "title_en": "Count Liberties: Last Liberty",
+      "level": "入门",
+      "tags": ["数气", "提子"],
+      "goal": "黑先，在一手内提掉白子。",
+      "goal_en": "Black to play and capture the white stone in one move.",
+      "hints": [
+        {"type": "text", "value": "先数一数中央白子的气。"},
+        {"type": "region", "value": ["cd", "dc", "dd", "ed", "de"]},
+        {"type": "answer", "value": ["de"]}
+      ],
+      "hints_en": [
+        {"type": "text", "value": "First count the liberties of the white stone in the center."},
+        {"type": "region", "value": ["cd", "dc", "dd", "ed", "de"]},
+        {"type": "answer", "value": ["de"]}
+      ],
+      "author": "KataGo HandTalk contributors",
+      "source": "original",
+      "license": "MIT"
+    },
+    {
+      "id": "liberty-02",
+      "file": "002-two-stone-last-liberty.sgf",
+      "title": "数气：两子一气",
+      "title_en": "Count Liberties: Two Stones, One Liberty",
+      "level": "入门",
+      "tags": ["数气", "提子"],
+      "goal": "白先，找到黑棋两子的最后一口气。",
+      "goal_en": "White to play. Find the last liberty of the two connected black stones.",
+      "hints": [
+        {"type": "text", "value": "连在一起的棋子要作为一个整体数气。"},
+        {"type": "region", "value": ["cd", "dc", "dd", "de", "df", "ee"]},
+        {"type": "answer", "value": ["df"]}
+      ],
+      "hints_en": [
+        {"type": "text", "value": "Treat connected stones as one group when counting liberties."},
+        {"type": "region", "value": ["cd", "dc", "dd", "de", "df", "ee"]},
+        {"type": "answer", "value": ["df"]}
+      ],
+      "author": "KataGo HandTalk contributors",
+      "source": "original",
+      "license": "MIT"
+    },
+    {
+      "id": "liberty-03",
+      "file": "003-bent-three-liberty.sgf",
+      "title": "数气：拐弯三子",
+      "title_en": "Count Liberties: Bent Three",
+      "level": "入门",
+      "tags": ["数气", "棋块"],
+      "goal": "黑先，提掉拐弯相连的三颗白子。",
+      "goal_en": "Black to play and capture the three connected white stones around the bend.",
+      "hints": [
+        {"type": "text", "value": "三颗白子彼此相连，共用同一口气。"},
+        {"type": "region", "value": ["dd", "de", "ed", "ee"]},
+        {"type": "answer", "value": ["ee"]}
+      ],
+      "hints_en": [
+        {"type": "text", "value": "The three white stones are connected and share one final liberty."},
+        {"type": "region", "value": ["dd", "de", "ed", "ee"]},
+        {"type": "answer", "value": ["ee"]}
+      ],
+      "author": "KataGo HandTalk contributors",
+      "source": "original",
+      "license": "MIT"
+    },
+    {
+      "id": "liberty-04",
+      "file": "004-three-stone-line.sgf",
+      "title": "数气：直线三子",
+      "title_en": "Count Liberties: Three in a Row",
+      "level": "入门",
+      "tags": ["数气", "棋块"],
+      "goal": "白先，找到黑棋直线三子的最后一气。",
+      "goal_en": "White to play. Find the last liberty of the three black stones in a row.",
+      "hints": [
+        {"type": "text", "value": "沿着黑棋外圈逐点检查空位。"},
+        {"type": "region", "value": ["dd", "de", "df", "dg"]},
+        {"type": "answer", "value": ["dg"]}
+      ],
+      "hints_en": [
+        {"type": "text", "value": "Check every empty point around the outside of the black group."},
+        {"type": "region", "value": ["dd", "de", "df", "dg"]},
+        {"type": "answer", "value": ["dg"]}
+      ],
+      "author": "KataGo HandTalk contributors",
+      "source": "original",
+      "license": "MIT"
+    },
+    {
+      "id": "atari-01",
+      "file": "005-atari-two-ways.sgf",
+      "title": "打吃：两个方向",
+      "title_en": "Atari: Two Directions",
+      "level": "入门",
+      "tags": ["打吃", "数气"],
+      "goal": "黑先，用一手把白子打成只剩一气。",
+      "goal_en": "Black to play. Put the white stone in atari with one move.",
+      "hints": [
+        {"type": "text", "value": "白子现在有两口气，堵住任意一口即可打吃。"},
+        {"type": "region", "value": ["dd", "ed", "de"]},
+        {"type": "answer", "value": ["ed", "de"]}
+      ],
+      "hints_en": [
+        {"type": "text", "value": "White has two liberties. Filling either one gives atari."},
+        {"type": "region", "value": ["dd", "ed", "de"]},
+        {"type": "answer", "value": ["ed", "de"]}
+      ],
+      "author": "KataGo HandTalk contributors",
+      "source": "original",
+      "license": "MIT"
+    },
+    {
+      "id": "atari-02",
+      "file": "006-corner-atari.sgf",
+      "title": "打吃：角部的两口气",
+      "title_en": "Atari: Two Corner Liberties",
+      "level": "入门",
+      "tags": ["打吃", "角部"],
+      "goal": "白先，在角部打吃黑子。",
+      "goal_en": "White to play and put the black corner stone in atari.",
+      "hints": [
+        {"type": "text", "value": "左侧和上侧已被白棋堵住，只数剩下的相邻空点。"},
+        {"type": "region", "value": ["bb", "cb", "bc"]},
+        {"type": "answer", "value": ["cb", "bc"]}
+      ],
+      "hints_en": [
+        {"type": "text", "value": "The left and upper sides are blocked by white; count only the remaining adjacent empty points."},
+        {"type": "region", "value": ["bb", "cb", "bc"]},
+        {"type": "answer", "value": ["cb", "bc"]}
+      ],
+      "author": "KataGo HandTalk contributors",
+      "source": "original",
+      "license": "MIT"
+    },
+    {
+      "id": "atari-03",
+      "file": "007-pair-atari.sgf",
+      "title": "打吃：相连两子",
+      "title_en": "Atari: A Connected Pair",
+      "level": "入门",
+      "tags": ["打吃", "棋块"],
+      "goal": "黑先，把相连的两颗白子打吃。",
+      "goal_en": "Black to play and put the two connected white stones in atari.",
+      "hints": [
+        {"type": "text", "value": "两颗白子只剩下两口公共的气。"},
+        {"type": "region", "value": ["dd", "de", "ed", "df"]},
+        {"type": "answer", "value": ["ed", "df"]}
+      ],
+      "hints_en": [
+        {"type": "text", "value": "The two white stones have only two shared liberties."},
+        {"type": "region", "value": ["dd", "de", "ed", "df"]},
+        {"type": "answer", "value": ["ed", "df"]}
+      ],
+      "author": "KataGo HandTalk contributors",
+      "source": "original",
+      "license": "MIT"
+    },
+    {
+      "id": "atari-04",
+      "file": "008-edgewise-atari.sgf",
+      "title": "打吃：横向两子",
+      "title_en": "Atari: Horizontal Pair",
+      "level": "入门",
+      "tags": ["打吃", "方向"],
+      "goal": "白先，选择一口气把黑棋两子打吃。",
+      "goal_en": "White to play. Choose one liberty to put the two black stones in atari.",
+      "hints": [
+        {"type": "text", "value": "黑棋两子还剩两个相邻空点。"},
+        {"type": "region", "value": ["cc", "dc", "db", "dd"]},
+        {"type": "answer", "value": ["db", "dd"]}
+      ],
+      "hints_en": [
+        {"type": "text", "value": "The two black stones have two adjacent empty points left."},
+        {"type": "region", "value": ["cc", "dc", "db", "dd"]},
+        {"type": "answer", "value": ["db", "dd"]}
+      ],
+      "author": "KataGo HandTalk contributors",
+      "source": "original",
+      "license": "MIT"
+    },
+    {
+      "id": "capture-01",
+      "file": "009-corner-pair-capture.sgf",
+      "title": "提子：角部两子",
+      "title_en": "Capture: Corner Pair",
+      "level": "入门",
+      "tags": ["提子", "角部"],
+      "goal": "黑先，提掉角上的两颗白子。",
+      "goal_en": "Black to play and capture the two white stones in the corner.",
+      "hints": [
+        {"type": "text", "value": "棋盘边缘也会封住棋子的气。"},
+        {"type": "region", "value": ["aa", "ab", "ac", "ba", "bb"]},
+        {"type": "answer", "value": ["ac"]}
+      ],
+      "hints_en": [
+        {"type": "text", "value": "The edge of the board also takes away liberties."},
+        {"type": "region", "value": ["aa", "ab", "ac", "ba", "bb"]},
+        {"type": "answer", "value": ["ac"]}
+      ],
+      "author": "KataGo HandTalk contributors",
+      "source": "original",
+      "license": "MIT"
+    },
+    {
+      "id": "capture-02",
+      "file": "010-edge-pair-capture.sgf",
+      "title": "提子：边上两子",
+      "title_en": "Capture: Pair on the Edge",
+      "level": "入门",
+      "tags": ["提子", "边部"],
+      "goal": "白先，收紧黑棋在上边的最后一气。",
+      "goal_en": "White to play and fill the last liberty of the black stones on the upper edge.",
+      "hints": [
+        {"type": "text", "value": "不要把棋盘外误算成气。"},
+        {"type": "region", "value": ["ca", "da", "ea", "fa", "db", "eb"]},
+        {"type": "answer", "value": ["eb"]}
+      ],
+      "hints_en": [
+        {"type": "text", "value": "Points outside the board are not liberties."},
+        {"type": "region", "value": ["ca", "da", "ea", "fa", "db", "eb"]},
+        {"type": "answer", "value": ["eb"]}
+      ],
+      "author": "KataGo HandTalk contributors",
+      "source": "original",
+      "license": "MIT"
+    },
+    {
+      "id": "capture-03",
+      "file": "011-square-capture.sgf",
+      "title": "提子：四子方块",
+      "title_en": "Capture: Four-Stone Square",
+      "level": "入门",
+      "tags": ["提子", "数气"],
+      "goal": "黑先，一手提掉白棋四子。",
+      "goal_en": "Black to play and capture the four white stones in one move.",
+      "hints": [
+        {"type": "text", "value": "方块四子看起来很厚，但现在只剩一口气。"},
+        {"type": "region", "value": ["dd", "de", "ed", "ee", "ef"]},
+        {"type": "answer", "value": ["ef"]}
+      ],
+      "hints_en": [
+        {"type": "text", "value": "The four-stone square looks solid, but it has only one liberty left."},
+        {"type": "region", "value": ["dd", "de", "ed", "ee", "ef"]},
+        {"type": "answer", "value": ["ef"]}
+      ],
+      "author": "KataGo HandTalk contributors",
+      "source": "original",
+      "license": "MIT"
+    },
+    {
+      "id": "capture-04",
+      "file": "012-bent-corner-capture.sgf",
+      "title": "提子：角部曲三",
+      "title_en": "Capture: Bent Three in the Corner",
+      "level": "入门",
+      "tags": ["提子", "角部"],
+      "goal": "白先，找到三颗黑子的共同最后一气。",
+      "goal_en": "White to play. Find the shared last liberty of the three black stones.",
+      "hints": [
+        {"type": "text", "value": "黑棋虽然拐弯，但三子仍是一个整体。"},
+        {"type": "region", "value": ["bb", "bc", "cb", "cc"]},
+        {"type": "answer", "value": ["cc"]}
+      ],
+      "hints_en": [
+        {"type": "text", "value": "Although they bend around the corner, the three black stones form one group."},
+        {"type": "region", "value": ["bb", "bc", "cb", "cc"]},
+        {"type": "answer", "value": ["cc"]}
+      ],
+      "author": "KataGo HandTalk contributors",
+      "source": "original",
+      "license": "MIT"
+    },
+    {
+      "id": "escape-01",
+      "file": "013-escape-single.sgf",
+      "title": "逃出打吃：伸一手",
+      "title_en": "Escape Atari: Extend",
+      "level": "入门",
+      "tags": ["逃出打吃", "长气"],
+      "goal": "黑先，救出被打吃的单子。",
+      "goal_en": "Black to play and save the stone in atari.",
+      "hints": [
+        {"type": "text", "value": "从唯一的气上向外延伸。"},
+        {"type": "region", "value": ["dd", "de"]},
+        {"type": "answer", "value": ["de"]}
+      ],
+      "hints_en": [
+        {"type": "text", "value": "Extend outward from its only liberty."},
+        {"type": "region", "value": ["dd", "de"]},
+        {"type": "answer", "value": ["de"]}
+      ],
+      "author": "KataGo HandTalk contributors",
+      "source": "original",
+      "license": "MIT"
+    },
+    {
+      "id": "escape-02",
+      "file": "014-escape-pair.sgf",
+      "title": "逃出打吃：两子一起跑",
+      "title_en": "Escape Atari: Run Together",
+      "level": "入门",
+      "tags": ["逃出打吃", "棋块"],
+      "goal": "白先，让被打吃的两颗白子增加气。",
+      "goal_en": "White to play and give the two white stones more liberties.",
+      "hints": [
+        {"type": "text", "value": "两颗白子只能从同一个方向逃出。"},
+        {"type": "region", "value": ["dd", "de", "df"]},
+        {"type": "answer", "value": ["df"]}
+      ],
+      "hints_en": [
+        {"type": "text", "value": "The two white stones can escape in only one direction."},
+        {"type": "region", "value": ["dd", "de", "df"]},
+        {"type": "answer", "value": ["df"]}
+      ],
+      "author": "KataGo HandTalk contributors",
+      "source": "original",
+      "license": "MIT"
+    },
+    {
+      "id": "escape-03",
+      "file": "015-corner-escape.sgf",
+      "title": "逃出打吃：角部出路",
+      "title_en": "Escape Atari: Corner Exit",
+      "level": "入门",
+      "tags": ["逃出打吃", "角部"],
+      "goal": "黑先，救出角上的黑子。",
+      "goal_en": "Black to play and save the black stone in the corner.",
+      "hints": [
+        {"type": "text", "value": "角上只剩沿着边线的一条路。"},
+        {"type": "region", "value": ["aa", "ab", "ba"]},
+        {"type": "answer", "value": ["ab"]}
+      ],
+      "hints_en": [
+        {"type": "text", "value": "In the corner, there is only one route out along the edge."},
+        {"type": "region", "value": ["aa", "ab", "ba"]},
+        {"type": "answer", "value": ["ab"]}
+      ],
+      "author": "KataGo HandTalk contributors",
+      "source": "original",
+      "license": "MIT"
+    },
+    {
+      "id": "escape-04",
+      "file": "016-edge-escape.sgf",
+      "title": "逃出打吃：边上转身",
+      "title_en": "Escape Atari: Turn on the Edge",
+      "level": "入门",
+      "tags": ["逃出打吃", "边部"],
+      "goal": "白先，救出上边相连的两颗白子。",
+      "goal_en": "White to play and save the two connected white stones on the upper edge.",
+      "hints": [
+        {"type": "text", "value": "寻找棋块唯一还能落子的气。"},
+        {"type": "region", "value": ["da", "ea", "eb"]},
+        {"type": "answer", "value": ["eb"]}
+      ],
+      "hints_en": [
+        {"type": "text", "value": "Find the group's only playable liberty."},
+        {"type": "region", "value": ["da", "ea", "eb"]},
+        {"type": "answer", "value": ["eb"]}
+      ],
+      "author": "KataGo HandTalk contributors",
+      "source": "original",
+      "license": "MIT"
+    },
+    {
+      "id": "connect-01",
+      "file": "017-connect-vertical.sgf",
+      "title": "连接：补上断点",
+      "title_en": "Connect: Fill the Gap",
+      "level": "入门",
+      "tags": ["连接", "断点"],
+      "goal": "黑先，把上下两块黑棋连成一块。",
+      "goal_en": "Black to play and connect the upper and lower black groups.",
+      "hints": [
+        {"type": "text", "value": "找到两块黑棋共同相邻的空点。"},
+        {"type": "region", "value": ["cc", "cd", "ce"]},
+        {"type": "answer", "value": ["cd"]}
+      ],
+      "hints_en": [
+        {"type": "text", "value": "Find the empty point adjacent to both black groups."},
+        {"type": "region", "value": ["cc", "cd", "ce"]},
+        {"type": "answer", "value": ["cd"]}
+      ],
+      "author": "KataGo HandTalk contributors",
+      "source": "original",
+      "license": "MIT"
+    },
+    {
+      "id": "connect-02",
+      "file": "018-connect-right-side.sgf",
+      "title": "连接：右边的缺口",
+      "title_en": "Connect: Right-Side Gap",
+      "level": "入门",
+      "tags": ["连接", "断点"],
+      "goal": "白先，补住两块白棋之间的缺口。",
+      "goal_en": "White to play and fill the gap between the two white groups.",
+      "hints": [
+        {"type": "text", "value": "白棋上下两部分只差中间一手。"},
+        {"type": "region", "value": ["fc", "fd", "fe"]},
+        {"type": "answer", "value": ["fd"]}
+      ],
+      "hints_en": [
+        {"type": "text", "value": "Only one move in the middle separates the upper and lower white stones."},
+        {"type": "region", "value": ["fc", "fd", "fe"]},
+        {"type": "answer", "value": ["fd"]}
+      ],
+      "author": "KataGo HandTalk contributors",
+      "source": "original",
+      "license": "MIT"
+    },
+    {
+      "id": "cut-01",
+      "file": "019-cut-cross.sgf",
+      "title": "切断：十字路口",
+      "title_en": "Cut: Crossroads",
+      "level": "入门",
+      "tags": ["切断", "断点"],
+      "goal": "黑先，抢占断点，不让上下白棋连接。",
+      "goal_en": "Black to play. Take the cutting point before the white stones connect.",
+      "hints": [
+        {"type": "text", "value": "连接点也正是切断点。"},
+        {"type": "region", "value": ["dc", "dd", "de"]},
+        {"type": "answer", "value": ["dd"]}
+      ],
+      "hints_en": [
+        {"type": "text", "value": "The connecting point is also the cutting point."},
+        {"type": "region", "value": ["dc", "dd", "de"]},
+        {"type": "answer", "value": ["dd"]}
+      ],
+      "author": "KataGo HandTalk contributors",
+      "source": "original",
+      "license": "MIT"
+    },
+    {
+      "id": "cut-02",
+      "file": "020-cut-horizontal.sgf",
+      "title": "切断：横向断点",
+      "title_en": "Cut: Horizontal Gap",
+      "level": "入门",
+      "tags": ["切断", "连接"],
+      "goal": "白先，切断左右两颗黑子。",
+      "goal_en": "White to play and separate the two black stones.",
+      "hints": [
+        {"type": "text", "value": "落在两颗黑子之间，同时与白棋接应。"},
+        {"type": "region", "value": ["cc", "dc", "ec"]},
+        {"type": "answer", "value": ["dc"]}
+      ],
+      "hints_en": [
+        {"type": "text", "value": "Play between the two black stones while connecting to white support."},
+        {"type": "region", "value": ["cc", "dc", "ec"]},
+        {"type": "answer", "value": ["dc"]}
+      ],
+      "author": "KataGo HandTalk contributors",
+      "source": "original",
+      "license": "MIT"
+    },
+    {
+      "id": "life-01",
+      "file": "021-make-two-eyes-black.sgf",
+      "title": "做活：一手分成两眼",
+      "title_en": "Life: Split into Two Eyes",
+      "level": "入门",
+      "tags": ["做活", "真眼"],
+      "goal": "黑先，把内部空间分成两个独立的眼。",
+      "goal_en": "Black to play and divide the inside space into two separate eyes.",
+      "hints": [
+        {"type": "text", "value": "三个连续空点要用中间一点分开。"},
+        {"type": "region", "value": ["dd", "ed", "fd"]},
+        {"type": "answer", "value": ["ed"]}
+      ],
+      "hints_en": [
+        {"type": "text", "value": "Split the three consecutive empty points by playing in the middle."},
+        {"type": "region", "value": ["dd", "ed", "fd"]},
+        {"type": "answer", "value": ["ed"]}
+      ],
+      "author": "KataGo HandTalk contributors",
+      "source": "original",
+      "license": "MIT"
+    },
+    {
+      "id": "life-02",
+      "file": "022-make-two-eyes-white.sgf",
+      "title": "做活：白棋两眼",
+      "title_en": "Life: Two Eyes for White",
+      "level": "入门",
+      "tags": ["做活", "真眼"],
+      "goal": "白先，将眼位分隔开，做出两只真眼。",
+      "goal_en": "White to play. Divide the eye space to make two true eyes.",
+      "hints": [
+        {"type": "text", "value": "占住内部三个空点的正中央。"},
+        {"type": "region", "value": ["dd", "ed", "fd"]},
+        {"type": "answer", "value": ["ed"]}
+      ],
+      "hints_en": [
+        {"type": "text", "value": "Play at the center of the three internal empty points."},
+        {"type": "region", "value": ["dd", "ed", "fd"]},
+        {"type": "answer", "value": ["ed"]}
+      ],
+      "author": "KataGo HandTalk contributors",
+      "source": "original",
+      "license": "MIT"
+    },
+    {
+      "id": "eye-01",
+      "file": "023-break-false-eye-white.sgf",
+      "title": "假眼：白棋破眼",
+      "title_en": "False Eye: White Breaks In",
+      "level": "入门",
+      "tags": ["假眼", "提子"],
+      "goal": "白先，走进看似不能落子的眼位。",
+      "goal_en": "White to play inside the eye point that looks unplayable.",
+      "hints": [
+        {"type": "text", "value": "先检查围住眼位的黑子是否正被打吃。"},
+        {"type": "region", "value": ["cd", "dd", "ed", "dc", "de"]},
+        {"type": "answer", "value": ["dd"]}
+      ],
+      "hints_en": [
+        {"type": "text", "value": "First check whether the black stones around the eye are in atari."},
+        {"type": "region", "value": ["cd", "dd", "ed", "dc", "de"]},
+        {"type": "answer", "value": ["dd"]}
+      ],
+      "author": "KataGo HandTalk contributors",
+      "source": "original",
+      "license": "MIT"
+    },
+    {
+      "id": "eye-02",
+      "file": "024-break-false-eye-black.sgf",
+      "title": "假眼：黑棋破眼",
+      "title_en": "False Eye: Black Breaks In",
+      "level": "入门",
+      "tags": ["假眼", "提子"],
+      "goal": "黑先，识破白棋的假眼并落进去。",
+      "goal_en": "Black to play. See through White's false eye and play inside.",
+      "hints": [
+        {"type": "text", "value": "眼位旁的白子只剩中央这一口气。"},
+        {"type": "region", "value": ["cd", "dd", "ed", "dc", "de"]},
+        {"type": "answer", "value": ["dd"]}
+      ],
+      "hints_en": [
+        {"type": "text", "value": "The white stone beside the eye has only this central liberty left."},
+        {"type": "region", "value": ["cd", "dd", "ed", "dc", "de"]},
+        {"type": "answer", "value": ["dd"]}
+      ],
+      "author": "KataGo HandTalk contributors",
+      "source": "original",
+      "license": "MIT"
+    }
+  ]
+}

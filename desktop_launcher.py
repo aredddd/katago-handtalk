@@ -696,6 +696,7 @@ def build_server_environment(
             "KATAGO_MODEL": str(paths.model),
             "KATAGO_CONFIG": str(paths.config),
             "KATAGO_WORK_DIR": str(runtime_data_root() / "katago-work"),
+            "KATAGO_HANDTALK_DATA_DIR": str(local_app_data_root()),
             "PORT": str(port),
             "DEFAULT_LANGUAGE": "zh",
             "DEFAULT_MAX_VISITS": "1000",

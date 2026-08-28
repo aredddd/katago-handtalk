@@ -175,6 +175,7 @@ def test_runtime_paths_and_environment_match_start_script(tmp_path):
         "KATAGO_MODEL": str(paths.model),
         "KATAGO_CONFIG": str(paths.config),
         "KATAGO_WORK_DIR": str(dl.runtime_data_root() / "katago-work"),
+        "KATAGO_HANDTALK_DATA_DIR": str(dl.local_app_data_root()),
         "PORT": "54321",
         "DEFAULT_LANGUAGE": "zh",
         "DEFAULT_MAX_VISITS": "1000",

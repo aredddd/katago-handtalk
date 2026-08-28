@@ -29,7 +29,7 @@
         connecting: "连接中…", connected: "已连接", disconnected: "连接已断开",
         engineReady: "引擎就绪", engineOffline: "引擎未运行", analyzing: "分析中…",
         aiThinking: "AI 思考中…", boardLoaded: "棋盘已加载", black: "黑", white: "白",
-        freePlay: "自由推演", playBlack: "执黑", playWhite: "执白", undo: "退一手",
+        freePlay: "自由推演", playBlack: "执黑", playWhite: "执白", practiceMode: "死活练习", undo: "退一手",
         stepBackHint: "每次退一手，可连续退到起始局面",
         pass: "停一手", analyze: "分析", newGame: "新对局", komi: "贴目",
         analysisOn: "开启分析", analysisOff: "关闭分析",
@@ -77,6 +77,8 @@
     let serverDefaultLang = "en";       // overwritten by /api/config
     let currentLang = "en";             // resolved in bootstrap()
     let appVersion = "";
+    let supportedBoardSizes = [9, 13, 19];
+    let recognitionBoardSizes = [19];
     let appCapabilities = {
         recognition: { enabled: true, available: true, reason: null },
         live_review: { available: true },
@@ -90,8 +92,19 @@
                 availableLangs = cfg.available_languages;
             if (cfg.default_language) serverDefaultLang = cfg.default_language;
             if (cfg.version) appVersion = String(cfg.version);
+            if (Array.isArray(cfg.supported_board_sizes) && cfg.supported_board_sizes.length) {
+                supportedBoardSizes = cfg.supported_board_sizes
+                    .map(Number)
+                    .filter((size) => Number.isInteger(size));
+            }
             if (cfg.capabilities && typeof cfg.capabilities === "object")
                 appCapabilities = { ...appCapabilities, ...cfg.capabilities };
+            const configuredRecognitionSizes = cfg.capabilities?.recognition?.supported_board_sizes;
+            if (Array.isArray(configuredRecognitionSizes) && configuredRecognitionSizes.length) {
+                recognitionBoardSizes = configuredRecognitionSizes
+                    .map(Number)
+                    .filter((size) => Number.isInteger(size));
+            }
         } catch (e) {
             console.warn("Could not load /api/config, using defaults", e);
         }
@@ -115,6 +128,12 @@
             (STRINGS.zh || {})[key] || key;
     }
 
+    function formatT(key, values = {}) {
+        return String(t(key)).replace(/\{([a-zA-Z0-9_]+)\}/g, (match, name) =>
+            Object.prototype.hasOwnProperty.call(values, name) ? String(values[name]) : match
+        );
+    }
+
     function applyTranslations() {
         document.getElementById("html-root").lang = currentLang === "zh" ? "zh-CN" : "en";
 
@@ -124,6 +143,9 @@
         });
         document.querySelectorAll("[data-title-key]").forEach((el) => {
             el.title = t(el.dataset.titleKey);
+        });
+        document.querySelectorAll("[data-aria-label-key]").forEach((el) => {
+            el.setAttribute("aria-label", t(el.dataset.ariaLabelKey));
         });
 
         // Live status text (re-apply current status if already set)
@@ -137,6 +159,22 @@
         renderAnalysisToggle();
         renderConfirmDialog();
         if (recognizedBoard) updateRecognizeUncertainCount();
+        if (practiceProblem) {
+            if (practiceSession) practiceSession.metadata = localizedPracticeMetadata(practiceProblem);
+            renderPracticeProblem();
+            renderPracticeSummary();
+            if (practiceSession) {
+                const level = practiceSession.snapshot().hintLevel;
+                if (!practiceSession.isTerminal() && level) {
+                    renderPracticeHint(practiceSession.getHint(level));
+                } else {
+                    renderPracticeHint(practiceLastHint, {
+                        preserveCounter: practiceHintPreserveCounter,
+                    });
+                }
+            }
+        }
+        if (practiceFeedbackState) paintPracticeFeedback();
     }
 
     function toggleLang() {
@@ -177,6 +215,23 @@
     let recognizeModalTrigger = null;
     let recognizeKeyboardPoint = null;
     let appToastTimer = null;
+    let pendingNewGameSize = null;
+
+    // Practice mode is deliberately isolated from normal game history. The
+    // user's current position is restored when they leave the lesson.
+    let practiceManifest = null;
+    let practiceProgress = {};
+    let practiceSession = null;
+    let practiceProblem = null;
+    let practiceProblemIndex = 0;
+    let practiceLoadGeneration = 0;
+    let practiceReturnState = null;
+    let practiceAttemptRecorded = false;
+    let practiceAnalysisUnlocked = false;
+    let practiceExplorationRoot = 0;
+    let practiceFeedbackState = null;
+    let practiceLastHint = null;
+    let practiceHintPreserveCounter = false;
 
     // Monotonic request id. Each requestAnalysis() bumps the counter and tags
     // its emit with reqId; the server echoes it back in the analysis result.
@@ -234,31 +289,54 @@
 
         const recognition = appCapabilities.recognition || {};
         const recognitionAvailable = recognition.available !== false;
-        const reasonText = recognition.reason === "dependencies_missing"
+        const recognitionSupportsBoard = isRecognitionSize(getBoardSize());
+        const configuredReason = recognition.reason === "dependencies_missing"
             ? "截图识别组件尚未安装"
             : recognition.reason === "models_missing"
                 ? "截图识别模型尚未配置"
                 : "截图识别未启用";
+        const reasonText = recognitionAvailable && !recognitionSupportsBoard
+            ? "截图导入和实时复盘目前只支持 19 路"
+            : configuredReason;
+        const recognitionUsable = recognitionAvailable && recognitionSupportsBoard &&
+            gameMode !== "practice";
+        const liveActive = Boolean(liveReviewStream || liveReviewStarting);
         document.querySelectorAll("#btn-camera, #btn-snipping, #btn-paste")
             .forEach((control) => {
-                control.disabled = !recognitionAvailable;
-                control.setAttribute("aria-disabled", String(!recognitionAvailable));
-                if (!recognitionAvailable) control.title = reasonText;
+                control.disabled = manualRecognitionBusy || liveActive || !recognitionUsable;
+                control.setAttribute("aria-disabled", String(control.disabled));
+                control.title = liveActive
+                    ? "请先停止实时复盘"
+                    : (recognitionUsable ? "" : reasonText);
             });
         const importCopy = document.querySelector("#btn-camera small");
-        if (importCopy && !recognitionAvailable) importCopy.textContent = reasonText + "（可选）";
+        if (importCopy) importCopy.textContent = recognitionUsable
+            ? "选择已有图片，从中局继续"
+            : reasonText + (recognitionAvailable ? "" : "（可选）");
 
-        const liveAvailable = recognitionAvailable &&
+        const liveAvailable = recognitionUsable &&
             (appCapabilities.live_review || {}).available !== false;
         const liveButton = document.getElementById("btn-live-review");
         if (liveButton) {
-            liveButton.disabled = !liveAvailable;
-            if (!liveAvailable) liveButton.title = reasonText;
+            // An active review must always keep its stop button available.
+            liveButton.disabled = manualRecognitionBusy || (!liveAvailable && !liveActive);
+            liveButton.title = (liveAvailable || liveActive) ? "" : reasonText;
         }
         const liveStatus = document.getElementById("live-review-status");
-        if (liveStatus && !liveAvailable) liveStatus.textContent = reasonText;
-        document.documentElement.dataset.visionAvailable = String(recognitionAvailable);
+        if (liveStatus && !liveActive) {
+            liveStatus.textContent = liveAvailable ? t("liveIdle") : reasonText;
+        }
+        document.documentElement.dataset.visionAvailable = String(recognitionUsable);
         document.documentElement.dataset.appVersion = appVersion;
+    }
+
+    function isRecognitionSize(size) {
+        return recognitionBoardSizes.includes(Number(size));
+    }
+
+    function canRecognizeCurrentBoard() {
+        return (appCapabilities.recognition || {}).available !== false &&
+            isRecognitionSize(getBoardSize()) && gameMode !== "practice";
     }
 
     function renderAlwaysOnTopButton() {
@@ -366,7 +444,11 @@
         await loadLocales();
 
         // 2. Initialise the application.
-        board = new GoBoard("goboard", 19);
+        const storedBoardSize = Number(localStorage.getItem("setting:board-size"));
+        const initialBoardSize = supportedBoardSizes.includes(storedBoardSize)
+            ? storedBoardSize
+            : (supportedBoardSizes.includes(19) ? 19 : supportedBoardSizes[0]);
+        board = new GoBoard("goboard", initialBoardSize);
         board.onMove((x, y) => handleUserMove(x, y));
         board.onCandidateHover = (idx) => highlightSuggestion(idx);
         board.onNavigate = (viewIdx, total) => updateNavUI(viewIdx, total);
@@ -377,6 +459,7 @@
         bindUI();
         bindRecognition();
         bindLiveReview();
+        syncBoardSizeControls(initialBoardSize, { persist: false });
         applyCapabilities();
         probeDesktopBridge();
 
@@ -458,6 +541,10 @@
     }
 
     function continueFromCurrentPosition() {
+        if (gameMode === "practice") {
+            if (practiceAnalysisUnlocked) requestAnalysis();
+            return;
+        }
         if (liveReviewStream) {
             requestAnalysis();
             return;
@@ -467,6 +554,11 @@
     }
 
     function stepBackOneMove() {
+        if (gameMode === "practice") {
+            if (practiceAnalysisUnlocked) return stepBackPracticeAnalysis();
+            retryPracticeProblem();
+            return true;
+        }
         if (!board || board.fullMoveHistory.length === 0) return false;
 
         clearLiveResumeBaseline();
@@ -493,6 +585,10 @@
 
     function handleUserMove(x, y) {
         if (isThinking || gameOver || liveReviewStream || liveReviewStarting) return;
+        if (gameMode === "practice") {
+            handlePracticeMove(x, y);
+            return;
+        }
         if (gameMode === "free-play") {
             if (board.tryMove(x, y)) {
                 clearLiveResumeBaseline();
@@ -580,6 +676,7 @@
 
     function requestAnalysis() {
         if (!socket || !socket.connected) return;
+        if (gameMode === "practice" && !practiceAnalysisUnlocked) return;
         // Analysis and AI move generation share one KataGo single-flight slot.
         // Do not let a manual overlay refresh cancel the AI move that the game
         // is currently waiting for.
@@ -782,6 +879,18 @@
         document.getElementById("confirm-message").textContent = t(config.messageKey);
         document.getElementById("confirm-cancel").textContent = t("cancel");
         document.getElementById("confirm-accept").textContent = t(config.confirmKey);
+        const options = document.getElementById("new-game-options");
+        if (options) {
+            options.hidden = !config.showBoardSizeOptions;
+            options.querySelectorAll("[data-new-game-size]").forEach((button) => {
+                const size = Number(button.dataset.newGameSize);
+                const available = supportedBoardSizes.includes(size);
+                button.hidden = !available;
+                const active = size === pendingNewGameSize;
+                button.classList.toggle("active", active);
+                button.setAttribute("aria-pressed", String(active));
+            });
+        }
     }
 
     function closeConfirmDialog(accepted) {
@@ -801,6 +910,9 @@
     function showConfirmDialog(config) {
         if (confirmDialogResolver) closeConfirmDialog(false);
         confirmDialogConfig = config;
+        pendingNewGameSize = config.showBoardSizeOptions
+            ? (config.initialBoardSize || getBoardSize())
+            : null;
         confirmDialogTrigger = document.activeElement;
         renderConfirmDialog();
         const modal = document.getElementById("confirm-modal");
@@ -987,7 +1099,60 @@
 
     function getKomi()      { return parseFloat(document.getElementById("komi").value); }
     function getMaxVisits() { return parseInt(document.getElementById("max-visits").value); }
-    function getBoardSize() { return parseInt(document.getElementById("board-size").value); }
+    function getBoardSize() {
+        const control = document.getElementById("board-size");
+        const size = control ? Number(control.value) : 19;
+        return supportedBoardSizes.includes(size) ? size : 19;
+    }
+
+    function syncBoardSizeControls(size, { persist = true } = {}) {
+        size = Number(size);
+        if (!supportedBoardSizes.includes(size)) {
+            size = supportedBoardSizes.includes(19) ? 19 : supportedBoardSizes[0];
+        }
+        const control = document.getElementById("board-size");
+        if (control) control.value = String(size);
+        const value = document.getElementById("board-size-value");
+        if (value) value.textContent = `${size}×${size}`;
+        document.querySelectorAll("[data-board-size]").forEach((button) => {
+            const buttonSize = Number(button.dataset.boardSize);
+            button.hidden = !supportedBoardSizes.includes(buttonSize);
+            const active = buttonSize === size;
+            button.classList.toggle("active", active);
+            button.setAttribute("aria-pressed", String(active));
+        });
+        if (persist) localStorage.setItem("setting:board-size", String(size));
+        if (board) applyCapabilities();
+        return size;
+    }
+
+    async function changeBoardSize(size) {
+        size = Number(size);
+        if (!supportedBoardSizes.includes(size) || size === getBoardSize()) return;
+        const hasPosition = board.fullMoveHistory.length > 0 ||
+            Boolean(board.initialStones && board.initialStones.length);
+        if (hasPosition) {
+            const accepted = await showConfirmDialog({
+                titleKey: "newGameDialogTitle",
+                messageKey: "confirmNewGame",
+                confirmKey: "startNewGame",
+                icon: "＋",
+                danger: false,
+                showBoardSizeOptions: true,
+                initialBoardSize: size,
+            });
+            if (!accepted) {
+                pendingNewGameSize = null;
+                return;
+            }
+            size = pendingNewGameSize || size;
+            pendingNewGameSize = null;
+        }
+        size = syncBoardSizeControls(size);
+        if (liveReviewStream || liveReviewStarting) stopLiveReview();
+        if (gameMode === "practice") return;
+        newGame(size);
+    }
 
     // ── UI bindings ───────────────────────────────────────────────────────────
 
@@ -1020,27 +1185,13 @@
         });
         document.getElementById("btn-free-after-error").addEventListener("click", () => {
             invalidatePendingAi();
-            gameMode = "free-play";
-            document.querySelectorAll(".mode-btn").forEach((button) => {
-                const active = button.dataset.mode === gameMode;
-                button.classList.toggle("active", active);
-                button.setAttribute("aria-pressed", String(active));
-            });
-            requestAnalysis();
+            setGameMode("free-play");
         });
 
         // Mode buttons
         document.querySelectorAll(".mode-btn").forEach((btn) => {
             btn.addEventListener("click", () => {
-                invalidatePendingAi();
-                invalidateAnalysisResults();
-                gameMode = btn.dataset.mode;
-                document.querySelectorAll(".mode-btn").forEach((button) => {
-                    const active = button.dataset.mode === gameMode;
-                    button.classList.toggle("active", active);
-                    button.setAttribute("aria-pressed", String(active));
-                });
-                continueFromCurrentPosition();
+                setGameMode(btn.dataset.mode);
             });
         });
 
@@ -1101,8 +1252,20 @@
                 confirmKey: "startNewGame",
                 icon: "＋",
                 danger: false,
+                showBoardSizeOptions: true,
             });
-            if (accepted) newGame();
+            if (accepted) {
+                const size = syncBoardSizeControls(pendingNewGameSize || getBoardSize());
+                newGame(size);
+            }
+            pendingNewGameSize = null;
+        });
+
+        document.querySelectorAll("[data-new-game-size]").forEach((button) => {
+            button.addEventListener("click", () => {
+                pendingNewGameSize = Number(button.dataset.newGameSize);
+                renderConfirmDialog();
+            });
         });
 
         document.getElementById("confirm-cancel").addEventListener(
@@ -1124,7 +1287,15 @@
             }
         });
 
-        document.getElementById("board-size").addEventListener("change", newGame);
+        document.getElementById("board-size").addEventListener("change", (event) => {
+            changeBoardSize(Number(event.target.value));
+        });
+        document.querySelectorAll("[data-board-size]").forEach((button) => {
+            button.addEventListener("click", () => {
+                const nextSize = Number(button.dataset.boardSize);
+                if (nextSize !== getBoardSize()) changeBoardSize(nextSize);
+            });
+        });
 
         document.getElementById("show-analysis").addEventListener("change", (e) => {
             setAnalysisEnabled(e.target.checked);
@@ -1174,9 +1345,10 @@
                 }
             });
         });
+        bindPracticeUI();
     }
 
-    function newGame() {
+    function newGame(size = getBoardSize()) {
         clearLiveResumeBaseline();
         liveReviewTracker.reset();
         invalidatePendingAi();
@@ -1184,11 +1356,568 @@
         isThinking = false;
         gameOver = false;
         hideGameMessage();
-        board.resetBoard(getBoardSize());
+        size = syncBoardSizeControls(size);
+        board.resetBoard(size);
         updateMoveCount();
         clearAnalysisPanels(true);
         setStatus("online", t("engineReady"));
         continueFromCurrentPosition();
+    }
+
+    // ── Beginner practice ───────────────────────────────────────────────────
+
+    function updateModeButtons() {
+        document.querySelectorAll(".mode-btn").forEach((button) => {
+            const active = button.dataset.mode === gameMode;
+            button.classList.toggle("active", active);
+            button.setAttribute("aria-pressed", String(active));
+        });
+    }
+
+    function captureNormalGame() {
+        return {
+            mode: gameMode,
+            size: board.size,
+            initialStones: board.initialStones
+                ? board.initialStones.map((stone) => stone.slice())
+                : null,
+            initialPlayer: board.initialPlayer,
+            fullMoveHistory: board.fullMoveHistory.map((move) => move.slice()),
+            viewIndex: board.viewIndex,
+            gameOver,
+            gameMessage: document.getElementById("game-message")?.textContent || "",
+            analysisEnabled: isAnalysisEnabled(),
+            showOwnership: Boolean(document.getElementById("show-ownership")?.checked),
+        };
+    }
+
+    function restoreNormalGame(state) {
+        if (!state) return;
+        board.resetBoard(state.size);
+        board.initialStones = state.initialStones
+            ? state.initialStones.map((stone) => stone.slice())
+            : null;
+        board.initialPlayer = state.initialPlayer;
+        board.fullMoveHistory = state.fullMoveHistory.map((move) => move.slice());
+        board.viewIndex = Math.min(state.viewIndex, board.fullMoveHistory.length);
+        board._rebuildToView();
+        gameOver = Boolean(state.gameOver);
+        if (gameOver) showGameMessage(state.gameMessage || "对局已结束");
+        else hideGameMessage();
+        syncBoardSizeControls(state.size, { persist: false });
+        clearAnalysisPanels(true);
+        setAnalysisEnabled(state.analysisEnabled, { request: false });
+        const ownership = document.getElementById("show-ownership");
+        const ownershipButton = document.getElementById("btn-position");
+        const showOwnership = Boolean(state.analysisEnabled && state.showOwnership);
+        ownership.checked = showOwnership;
+        board.showOwnership = showOwnership;
+        ownershipButton.classList.toggle("active", showOwnership);
+        ownershipButton.setAttribute("aria-pressed", String(showOwnership));
+        board.draw();
+        updateMoveCount();
+    }
+
+    function setPracticeLayout(active) {
+        document.documentElement.classList.toggle("practice-active", active);
+        document.documentElement.classList.remove("practice-analysis-active");
+        document.getElementById("goboard")?.removeAttribute("aria-description");
+        document.querySelectorAll(".practice-only").forEach((section) => {
+            section.hidden = !active;
+        });
+        document.querySelectorAll(
+            ".action-card, .live-review-card, .analysis-card, .pv-card, .settings-card"
+        ).forEach((section) => {
+            section.hidden = active;
+        });
+        applyCapabilities();
+    }
+
+    function setPracticeAnalysisLayout(active) {
+        if (gameMode !== "practice") active = false;
+        document.documentElement.classList.toggle("practice-analysis-active", active);
+        document.getElementById("practice-summary-section").hidden = active;
+        document.getElementById("suggestions-section").hidden = !active;
+        document.getElementById("pv-section").hidden = !active;
+        const actions = document.querySelector(".practice-actions");
+        const backButton = document.getElementById("btn-practice-back");
+        actions?.classList.toggle("analysis-open", active);
+        if (backButton) backButton.hidden = !active;
+        if (!active) practiceExplorationRoot = 0;
+        updatePracticeBackButton();
+    }
+
+    function updatePracticeBackButton() {
+        const button = document.getElementById("btn-practice-back");
+        if (!button) return;
+        button.disabled = !practiceAnalysisUnlocked ||
+            !board || board.fullMoveHistory.length <= practiceExplorationRoot;
+    }
+
+    async function setGameMode(nextMode) {
+        if (!["free-play", "play-black", "play-white", "practice"].includes(nextMode)) return;
+        if (nextMode === gameMode) return;
+
+        invalidatePendingAi();
+        invalidateAnalysisResults();
+        if (socket && socket.connected) socket.emit(EVENTS.CANCEL);
+
+        if (nextMode === "practice") {
+            practiceReturnState = captureNormalGame();
+            gameMode = "practice";
+            updateModeButtons();
+            if (liveReviewStream || liveReviewStarting) stopLiveReview();
+            gameOver = false;
+            hideGameMessage();
+            practiceAnalysisUnlocked = false;
+            setAnalysisEnabled(false, { request: false });
+            setPracticeLayout(true);
+            await initializePractice();
+            return;
+        }
+
+        const wasPractice = gameMode === "practice";
+        if (wasPractice) {
+            await recordAbandonedPracticeIfNeeded();
+            practiceLoadGeneration++;
+            board.setPracticeOverlay(null);
+            setPracticeLayout(false);
+            restoreNormalGame(practiceReturnState);
+            practiceReturnState = null;
+            practiceSession = null;
+            practiceProblem = null;
+            practiceAnalysisUnlocked = false;
+            practiceExplorationRoot = 0;
+        }
+        gameMode = nextMode;
+        updateModeButtons();
+        applyCapabilities();
+        continueFromCurrentPosition();
+    }
+
+    async function initializePractice() {
+        const generation = ++practiceLoadGeneration;
+        setPracticeLoading(t("practiceLoadingLibrary"));
+        try {
+            if (!practiceManifest) {
+                const response = await fetch("/problems/manifest.json", { cache: "no-cache" });
+                if (!response.ok) {
+                    throw new Error(formatT("practiceLibraryHttpError", { status: response.status }));
+                }
+                practiceManifest = await response.json();
+                if (!Array.isArray(practiceManifest.problems) || !practiceManifest.problems.length) {
+                    throw new Error(t("practiceLibraryEmpty"));
+                }
+            }
+            try {
+                const response = await fetch("/api/practice-progress", { cache: "no-store" });
+                const payload = response.ok ? await response.json() : null;
+                practiceProgress = payload && payload.records && typeof payload.records === "object"
+                    ? payload.records
+                    : {};
+            } catch (error) {
+                console.warn("Could not load practice progress", error);
+                practiceProgress = {};
+            }
+            if (generation !== practiceLoadGeneration || gameMode !== "practice") return;
+            practiceProblemIndex = chooseInitialPracticeIndex();
+            renderPracticeSummary();
+            await loadPracticeProblem(practiceProblemIndex, generation);
+        } catch (error) {
+            if (generation !== practiceLoadGeneration || gameMode !== "practice") return;
+            setPracticeLoading(error.message || t("practiceLoadFailed"), true);
+        }
+    }
+
+    function chooseInitialPracticeIndex() {
+        return Math.max(0, PracticeState.chooseProblemIndex(
+            practiceManifest.problems,
+            practiceProgress,
+            Date.now()
+        ));
+    }
+
+    function setPracticeLoading(message, isError = false) {
+        practiceSession = null;
+        practiceProblem = null;
+        practiceAnalysisUnlocked = false;
+        practiceExplorationRoot = 0;
+        practiceFeedbackState = null;
+        practiceLastHint = null;
+        practiceHintPreserveCounter = false;
+        board.setPracticeOverlay(null);
+        document.getElementById("goboard")?.removeAttribute("aria-description");
+        const title = document.getElementById("practice-title");
+        const goal = document.getElementById("practice-goal");
+        if (title) title.textContent = isError ? t("practiceUnavailable") : t("practicePreparing");
+        if (goal) goal.textContent = message;
+        const feedback = document.getElementById("practice-feedback");
+        if (feedback) feedback.className = `practice-feedback ${isError ? "failure" : "neutral"}`;
+        document.getElementById("practice-feedback-title").textContent =
+            isError ? t("practiceNotLoaded") : t("practicePleaseWait");
+        document.getElementById("practice-feedback-copy").textContent = message;
+        ["btn-practice-hint", "btn-practice-answer", "btn-practice-retry",
+            "btn-practice-next", "btn-practice-analyze", "btn-practice-back"].forEach((id) => {
+            document.getElementById(id).disabled = true;
+        });
+    }
+
+    async function loadPracticeProblem(index, expectedGeneration = practiceLoadGeneration) {
+        const problems = practiceManifest.problems;
+        index = ((Number(index) || 0) % problems.length + problems.length) % problems.length;
+        const metadata = problems[index];
+        setPracticeLoading(t("practiceSettingUp"));
+        const response = await fetch(`/problems/${encodeURIComponent(metadata.file)}`, {
+            cache: "no-cache",
+        });
+        if (!response.ok) {
+            throw new Error(formatT("practiceProblemHttpError", { status: response.status }));
+        }
+        const sgf = await response.text();
+        if (expectedGeneration !== practiceLoadGeneration || gameMode !== "practice") return;
+
+        practiceProblemIndex = index;
+        practiceProblem = metadata;
+        practiceSession = new PracticeState.Session(sgf, localizedPracticeMetadata(metadata));
+        practiceAttemptRecorded = false;
+        practiceAnalysisUnlocked = false;
+        setAnalysisEnabled(false, { request: false });
+        setPracticeAnalysisLayout(false);
+        syncPracticeBoard();
+        renderPracticeProblem();
+        renderPracticeFeedback("neutral", "practiceThinkTitle", "practiceThinkCopy");
+        renderPracticeHint(null);
+        document.getElementById("btn-practice-analyze").disabled = true;
+        document.getElementById("btn-practice-hint").disabled = false;
+        document.getElementById("btn-practice-answer").disabled = false;
+        document.getElementById("btn-practice-retry").disabled = false;
+        document.getElementById("btn-practice-next").disabled = false;
+        setEvaluationUnavailable(t("practiceAnalyzeAfter"));
+        setStatus("online", t("engineReady"));
+    }
+
+    function syncPracticeBoard() {
+        if (!practiceSession) return;
+        const problem = practiceSession.problem;
+        const snapshot = practiceSession.snapshot();
+        const size = Number(problem.size);
+        board.resetBoard(size);
+        for (let y = 0; y < size; y++) {
+            for (let x = 0; x < size; x++) board.board[y][x] = problem.initialBoard[y][x];
+        }
+        board.currentPlayer = problem.initialPlayer === "W" ? 2 : 1;
+        board.setInitialStonesFromBoard();
+        for (const entry of snapshot.path) {
+            const move = entry.move;
+            if (!move || move.point == null) board.passMove();
+            else if (!board.tryMove(move.point.x, move.point.y, { silent: true })) {
+                throw new Error(formatT("practiceReplayFailed", { move: move.sgf }));
+            }
+        }
+        board.showAnalysis = false;
+        board.setPracticeOverlay(null);
+        document.getElementById("goboard")?.removeAttribute("aria-description");
+        board.draw();
+        updateMoveCount();
+    }
+
+    function renderPracticeProblem() {
+        if (!practiceProblem || !practiceManifest) return;
+        const total = practiceManifest.problems.length;
+        const localized = localizedPracticeMetadata(practiceProblem);
+        document.getElementById("practice-level").textContent =
+            formatT("practiceBeginnerProblem", { index: practiceProblemIndex + 1 });
+        document.getElementById("practice-title").textContent = localized.title;
+        document.getElementById("practice-position").textContent =
+            `${practiceProblemIndex + 1} / ${total}`;
+        document.getElementById("practice-goal").textContent = localized.goal;
+    }
+
+    function localizedPracticeMetadata(metadata) {
+        if (!metadata) return {};
+        const english = currentLang === "en";
+        return {
+            ...metadata,
+            title: english ? (metadata.title_en || metadata.title) : metadata.title,
+            goal: english ? (metadata.goal_en || metadata.goal) : metadata.goal,
+            hints: english ? (metadata.hints_en || metadata.hints) : metadata.hints,
+            derivedHint: t("practiceDerivedHint"),
+        };
+    }
+
+    function renderPracticeSummary() {
+        if (!practiceManifest) return;
+        const total = practiceManifest.problems.length;
+        const solved = practiceManifest.problems.filter(
+            (problem) => Boolean(practiceProgress[problem.id]?.solved)
+        ).length;
+        document.getElementById("practice-progress-count").textContent = `${solved} / ${total}`;
+        document.getElementById("practice-progress-bar").style.width =
+            `${total ? Math.round(solved / total * 100) : 0}%`;
+        document.getElementById("practice-progress-copy").textContent = solved
+            ? formatT("practiceProgressDone", { solved })
+            : t("practiceProgressStart");
+    }
+
+    function renderPracticeFeedback(kind, titleKey, copyKey, { zhComment = "" } = {}) {
+        practiceFeedbackState = { kind, titleKey, copyKey, zhComment };
+        paintPracticeFeedback();
+    }
+
+    function paintPracticeFeedback() {
+        if (!practiceFeedbackState) return;
+        const { kind, titleKey, copyKey, zhComment } = practiceFeedbackState;
+        const feedback = document.getElementById("practice-feedback");
+        feedback.className = `practice-feedback ${kind}`;
+        document.getElementById("practice-feedback-title").textContent = t(titleKey);
+        document.getElementById("practice-feedback-copy").textContent =
+            currentLang === "zh" && zhComment ? zhComment : t(copyKey);
+    }
+
+    function handlePracticeMove(x, y) {
+        if (!practiceSession) return;
+        if (practiceAnalysisUnlocked) {
+            if (!board.tryMove(x, y)) return;
+            invalidateAnalysisResults();
+            clearAnalysisPanels();
+            board.draw();
+            updateMoveCount();
+            updatePracticeBackButton();
+            requestAnalysis();
+            return;
+        }
+        if (practiceSession.isTerminal()) return;
+        if (!board.previewMove(x, y)) {
+            renderPracticeFeedback(
+                "neutral",
+                "practiceIllegalTitle",
+                "practiceIllegalCopy"
+            );
+            return;
+        }
+        const preview = practiceSession.peekMove({ x, y });
+        if (!preview.known) {
+            practiceSession.playUserMove({ x, y });
+            renderPracticeFeedback(
+                "failure",
+                "practiceUnknownTitle",
+                "practiceUnknownCopy"
+            );
+            return;
+        }
+
+        const result = practiceSession.playUserMove({ x, y });
+        syncPracticeBoard();
+        renderPracticeHint(null, { preserveCounter: true });
+        if (result.status === "success" || result.status === "complete") {
+            renderPracticeFeedback(
+                "success",
+                "practiceSuccessTitle",
+                "practiceSuccessCopy",
+                { zhComment: result.snapshot.comment || "" }
+            );
+            finishPracticeAttempt(true);
+        } else if (result.status === "failure") {
+            renderPracticeFeedback(
+                "failure",
+                "practiceFailureTitle",
+                "practiceFailureCopy",
+                { zhComment: result.snapshot.comment || "" }
+            );
+            finishPracticeAttempt(false);
+        } else {
+            renderPracticeFeedback(
+                "active",
+                "practiceContinueTitle",
+                "practiceContinueCopy",
+                { zhComment: result.snapshot.comment || "" }
+            );
+        }
+    }
+
+    function finishPracticeAttempt(succeeded) {
+        document.getElementById("btn-practice-analyze").disabled = false;
+        document.getElementById("btn-practice-hint").disabled = true;
+        document.getElementById("btn-practice-answer").disabled = true;
+        if (!practiceAttemptRecorded) {
+            practiceAttemptRecorded = true;
+            savePracticeAttempt(succeeded).catch((error) => {
+                console.warn("Could not save practice progress", error);
+                showToast(t("practiceProgressSaveFailed"), 6500);
+            });
+        }
+    }
+
+    async function savePracticeAttempt(succeeded, { skipped = false } = {}) {
+        const previous = practiceProgress[practiceProblem.id] || {};
+        const attempt = practiceSession.attemptResult();
+        const resultStatus = succeeded ? "success" : (skipped ? "skipped" : "failure");
+        const scheduled = PracticeState.scheduleProgress(previous, {
+            ...attempt,
+            // A skipped attempt with hints/reveal is complete enough to grade
+            // for review timing, without counting it as a solve or a success.
+            correct: Boolean(succeeded || skipped) && attempt.mistakes === 0,
+            status: resultStatus,
+        });
+        const now = new Date();
+        const record = {
+            attempts: scheduled.attempts,
+            successes: Number(previous.successes || 0) + (succeeded ? 1 : 0),
+            streak: scheduled.streak,
+            lapses: scheduled.lapses,
+            hints_used: Number(previous.hints_used || 0) + Number(attempt.hintsUsed || 0),
+            solved: Boolean(previous.solved || succeeded),
+            last_result: resultStatus,
+            due_at: new Date(scheduled.dueAt).toISOString(),
+            updated_at: now.toISOString(),
+        };
+        practiceProgress[practiceProblem.id] = record;
+        renderPracticeSummary();
+        const response = await fetch(
+            `/api/practice-progress/${encodeURIComponent(practiceProblem.id)}`,
+            {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(record),
+            }
+        );
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    }
+
+    async function recordAbandonedPracticeIfNeeded() {
+        if (!practiceSession || practiceSession.isTerminal() || practiceAttemptRecorded) return;
+        const attempt = practiceSession.attemptResult();
+        const engaged = attempt.answerViewed || Number(attempt.hintsUsed || 0) > 0 ||
+            Number(attempt.mistakes || 0) > 0;
+        if (!engaged) return;
+        practiceAttemptRecorded = true;
+        try {
+            await savePracticeAttempt(false, { skipped: true });
+        } catch (error) {
+            console.warn("Could not save skipped practice progress", error);
+            showToast(t("practiceProgressSaveFailed"), 6500);
+        }
+    }
+
+    function renderPracticeHint(hint, { preserveCounter = false } = {}) {
+        practiceLastHint = hint;
+        practiceHintPreserveCounter = preserveCounter;
+        const snapshot = practiceSession ? practiceSession.snapshot() : { hintLevel: 0 };
+        const level = preserveCounter ? snapshot.hintLevel : (hint ? hint.level : 0);
+        document.getElementById("practice-hint-counter").textContent = `${level} / 3`;
+        if (!hint) {
+            if (!preserveCounter || level === 0) {
+                document.getElementById("practice-hint-stage").textContent = t("practiceNoHint");
+                document.getElementById("practice-hint-text").textContent = t("practiceNoHintCopy");
+            } else {
+                document.getElementById("practice-hint-stage").textContent = t("practicePositionChanged");
+                document.getElementById("practice-hint-text").textContent =
+                    t("practicePositionChangedCopy");
+            }
+            board.setPracticeOverlay(null);
+            document.getElementById("goboard").removeAttribute("aria-description");
+            return;
+        }
+        const labels = [t("practiceHintIdea"), t("practiceHintRegion"), t("practiceHintAnswer")];
+        document.getElementById("practice-hint-stage").textContent = labels[hint.level - 1];
+        const coordinates = Array.isArray(hint.points)
+            ? hint.points.map((point) => PracticeState.pointToGtp(point, board.size)).join("、")
+            : "";
+        if (hint.type === "text") {
+            document.getElementById("practice-hint-text").textContent = hint.value;
+            board.setPracticeOverlay(null);
+            document.getElementById("goboard").removeAttribute("aria-description");
+        } else if (hint.type === "region") {
+            const description = formatT("practiceKeyRegion", { coordinates });
+            document.getElementById("practice-hint-text").textContent = description;
+            document.getElementById("goboard").setAttribute("aria-description", description);
+            board.setPracticeOverlay({ region: hint.points });
+        } else {
+            const description = formatT("practiceAnswerPoint", { coordinates });
+            document.getElementById("practice-hint-text").textContent = description;
+            document.getElementById("goboard").setAttribute("aria-description", description);
+            board.setPracticeOverlay({ answer: hint.points });
+        }
+    }
+
+    function showNextPracticeHint() {
+        if (!practiceSession || practiceSession.isTerminal()) return;
+        const nextLevel = Math.min(3, practiceSession.snapshot().hintLevel + 1);
+        renderPracticeHint(practiceSession.getHint(nextLevel));
+    }
+
+    function revealPracticeAnswer() {
+        if (!practiceSession || practiceSession.isTerminal()) return;
+        renderPracticeHint(practiceSession.revealAnswer());
+        renderPracticeFeedback("active", "practiceAnswerMarked", "practiceAnswerMarkedCopy");
+    }
+
+    function retryPracticeProblem() {
+        if (!practiceSession) return;
+        practiceSession.retry();
+        practiceAttemptRecorded = false;
+        practiceAnalysisUnlocked = false;
+        practiceExplorationRoot = 0;
+        setAnalysisEnabled(false, { request: false });
+        setPracticeAnalysisLayout(false);
+        syncPracticeBoard();
+        renderPracticeHint(null);
+        renderPracticeFeedback("neutral", "practiceRetryTitle", "practiceRetryCopy");
+        document.getElementById("btn-practice-analyze").disabled = true;
+        document.getElementById("btn-practice-hint").disabled = false;
+        document.getElementById("btn-practice-answer").disabled = false;
+        setEvaluationUnavailable(t("practiceAnalyzeAfter"));
+    }
+
+    async function nextPracticeProblem() {
+        if (!practiceManifest) return;
+        await recordAbandonedPracticeIfNeeded();
+        const nextIndex = (practiceProblemIndex + 1) % practiceManifest.problems.length;
+        try {
+            await loadPracticeProblem(nextIndex);
+        } catch (error) {
+            setPracticeLoading(error.message || t("practiceProblemLoadFailed"), true);
+        }
+    }
+
+    function analyzePracticePosition() {
+        if (!practiceSession || !practiceSession.isTerminal()) return;
+        if (!practiceAnalysisUnlocked) {
+            practiceAnalysisUnlocked = true;
+            practiceExplorationRoot = board.fullMoveHistory.length;
+        }
+        board.setPracticeOverlay(null);
+        document.getElementById("goboard")?.removeAttribute("aria-description");
+        setPracticeAnalysisLayout(true);
+        setAnalysisEnabled(true);
+        updatePracticeBackButton();
+        renderPracticeFeedback(
+            "active",
+            "practiceAnalyzingTitle",
+            "practiceAnalyzingCopy"
+        );
+    }
+
+    function stepBackPracticeAnalysis() {
+        if (!practiceAnalysisUnlocked || !board ||
+            board.fullMoveHistory.length <= practiceExplorationRoot) return false;
+        invalidateAnalysisResults();
+        if (socket && socket.connected) socket.emit(EVENTS.CANCEL);
+        if (!board.undo()) return false;
+        clearAnalysisPanels();
+        updateMoveCount();
+        updatePracticeBackButton();
+        requestAnalysis();
+        return true;
+    }
+
+    function bindPracticeUI() {
+        document.getElementById("btn-practice-hint").addEventListener("click", showNextPracticeHint);
+        document.getElementById("btn-practice-answer").addEventListener("click", revealPracticeAnswer);
+        document.getElementById("btn-practice-retry").addEventListener("click", retryPracticeProblem);
+        document.getElementById("btn-practice-next").addEventListener("click", nextPracticeProblem);
+        document.getElementById("btn-practice-analyze").addEventListener("click", analyzePracticePosition);
+        document.getElementById("btn-practice-back").addEventListener("click", stepBackPracticeAnalysis);
     }
 
     // ── Board recognition ─────────────────────────────────────────────────────
@@ -1205,7 +1934,7 @@
         const modal       = document.getElementById("recognize-modal");
 
         document.getElementById("btn-camera").addEventListener("click", () => {
-            if (manualRecognitionBusy || (appCapabilities.recognition || {}).available === false) return;
+            if (manualRecognitionBusy || !canRecognizeCurrentBoard()) return;
             cameraInput.value = ""; cameraInput.click();
         });
 
@@ -1218,7 +1947,7 @@
 
         document.getElementById("btn-paste").addEventListener("click", importClipboardImage);
         document.addEventListener("paste", (event) => {
-            if (liveReviewStream || liveReviewStarting) return;
+            if (liveReviewStream || liveReviewStarting || !canRecognizeCurrentBoard()) return;
             const file = imageFromClipboardData(event.clipboardData);
             if (!file) return;
             event.preventDefault();
@@ -1253,7 +1982,7 @@
     async function recognizeImage(file, { signal } = {}) {
         const fd = new FormData();
         fd.append("image", file, file.name || "board-frame.jpg");
-        fd.append("boardSize", getBoardSize());
+        fd.append("boardSize", board ? board.size : getBoardSize());
         fd.append("sid", socket ? socket.id : "default");
         const response = await fetch("/api/recognize", {
             method: "POST",
@@ -1303,13 +2032,7 @@
 
     function setManualRecognitionBusy(busy) {
         manualRecognitionBusy = busy;
-        const recognitionAvailable = (appCapabilities.recognition || {}).available !== false;
-        document.querySelectorAll("#btn-camera, #btn-snipping, #btn-paste")
-            .forEach((control) => { control.disabled = busy || !recognitionAvailable; });
-        const liveAvailable = recognitionAvailable &&
-            (appCapabilities.live_review || {}).available !== false;
-        const liveButton = document.getElementById("btn-live-review");
-        if (liveButton) liveButton.disabled = busy || !liveAvailable;
+        applyCapabilities();
     }
 
     function setRecognitionSourcePreview(file) {
@@ -1324,7 +2047,7 @@
 
     async function uploadAndRecognize(file) {
         if (liveReviewStream || liveReviewStarting || manualRecognitionBusy ||
-            (appCapabilities.recognition || {}).available === false) return;
+            !canRecognizeCurrentBoard()) return;
         const modal   = document.getElementById("recognize-modal");
         const loading = document.getElementById("recognize-loading");
         const result  = document.getElementById("recognize-result");
@@ -1607,7 +2330,7 @@
                 board.board[y][x] = boardData[y][x];
         board.currentPlayer = nextPlayer;
         board.setInitialStonesFromBoard();
-        document.getElementById("board-size").value = String(size);
+        syncBoardSizeControls(size);
         document.getElementById("live-next-player").value = String(nextPlayer);
         if (trustForLive) {
             liveResumeBaseline = {
@@ -1669,6 +2392,8 @@
     }
 
     async function launchSnippingTool() {
+        if (manualRecognitionBusy || liveReviewStream || liveReviewStarting ||
+            !canRecognizeCurrentBoard()) return;
         const api = desktopApi();
         if (api && typeof api.open_snipping_tool === "function") {
             try {
@@ -1755,7 +2480,8 @@
     }
 
     async function importClipboardImage() {
-        if (liveReviewStream || liveReviewStarting) return;
+        if (manualRecognitionBusy || liveReviewStream || liveReviewStarting ||
+            !canRecognizeCurrentBoard()) return;
         let clipboardWasReadable = false;
         if (navigator.clipboard && navigator.clipboard.read) {
             try {
@@ -1784,8 +2510,16 @@
     }
 
     async function startLiveReview() {
-        if ((appCapabilities.recognition || {}).available === false) {
-            setLiveReviewState(false, "截图识别未配置");
+        if (manualRecognitionBusy) {
+            showToast("请等待当前截图识别完成。");
+            return;
+        }
+        if (!canRecognizeCurrentBoard()) {
+            const message = isRecognitionSize(getBoardSize())
+                ? "截图识别未配置"
+                : "实时复盘目前只支持 19 路";
+            setLiveReviewState(false, message);
+            showToast(message);
             return;
         }
         if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
@@ -1903,6 +2637,7 @@
         ).forEach((control) => { control.disabled = active; });
         const stepBack = document.getElementById("btn-undo");
         if (stepBack) stepBack.disabled = active || !board || board.viewIndex <= 0;
+        if (!active) applyCapabilities();
     }
 
     function scheduleLiveFrame(delay = 350) {

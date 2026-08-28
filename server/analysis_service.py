@@ -14,13 +14,14 @@ from typing import Optional
 
 from katago_facade import KataGoFacade
 from circuit_breaker import CircuitBreakerBase
+from board_sizes import DEFAULT_BOARD_SIZE, validate_board_size
 
 
 @dataclass
 class AnalysisParams:
     """Parameters of an analysis request, parsed from the client payload."""
     moves: list = field(default_factory=list)
-    board_size: int = 19
+    board_size: int = DEFAULT_BOARD_SIZE
     komi: float = 7.5
     max_visits: int = 3000
     include_ownership: bool = False
@@ -29,9 +30,14 @@ class AnalysisParams:
 
     @classmethod
     def from_request(cls, data: dict, default_max_visits: int) -> "AnalysisParams":
+        if not isinstance(data, dict):
+            raise TypeError("Invalid request payload: expected an object")
+
         return cls(
             moves=data.get("moves", []),
-            board_size=data.get("boardSize", 19),
+            board_size=validate_board_size(
+                data.get("boardSize", DEFAULT_BOARD_SIZE)
+            ),
             komi=data.get("komi", 7.5),
             max_visits=data.get("maxVisits", default_max_visits),
             include_ownership=data.get("includeOwnership", False),

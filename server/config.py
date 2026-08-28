@@ -59,6 +59,23 @@ KATAGO_MAX_WAIT: int = int(_get("katago", "max_wait", "KATAGO_MAX_WAIT", "300"))
 PORT: int               = int(_get("server", "port", "PORT", "5000"))
 DEFAULT_MAX_VISITS: int = int(_get("server", "default_max_visits", "DEFAULT_MAX_VISITS", "1000"))
 
+# ── Local user data ─────────────────────────────────────────────────────────
+
+# Desktop builds point this at ``%LOCALAPPDATA%\KataGoHandTalk`` so progress
+# survives the random localhost port used on each launch.  A repository-local
+# fallback keeps source checkouts self contained.
+PRACTICE_DATA_DIR: str = _resolve(
+    _get(
+        "practice",
+        "data_dir",
+        "KATAGO_HANDTALK_DATA_DIR",
+        os.path.join(".runtime", "user-data"),
+    )
+)
+PRACTICE_PROGRESS_PATH: str = os.path.join(
+    PRACTICE_DATA_DIR, "practice-progress.json"
+)
+
 # ── Internationalisation ──────────────────────────────────────────────────────
 
 DEFAULT_LANGUAGE: str = _get("i18n", "default_language", "DEFAULT_LANGUAGE", "en")

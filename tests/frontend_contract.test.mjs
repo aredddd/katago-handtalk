@@ -218,6 +218,12 @@ test("new beginner and live-review strings exist in both languages", () => {
     "stepBackHint",
     "recognitionTimedOut", "recognizeKeyboard", "emptyPoint", "blackStone",
     "whiteStone", "aiTimedOut", "aiInvalidMove",
+    "practiceMode", "practiceModeHint", "practiceGoalLabel", "practiceTieredHints",
+    "practiceHintButton", "practiceRetry", "practiceAnswer", "practiceNext",
+    "practiceAnalyze", "practiceLoadingLibrary", "practiceThinkTitle",
+    "practiceProgressStart", "practiceIllegalTitle", "practiceSuccessTitle",
+    "practiceFailureTitle", "practiceContinueTitle", "practiceNoHint",
+    "practiceAnswerMarked", "practiceAnalyzingTitle", "practiceDerivedHint",
   ];
   for (const key of keys) {
     assert.ok(zh[key], `missing zh.${key}`);

@@ -18,6 +18,7 @@ from config import (
     KATAGO_PATH,
     MODEL_PATH,
 )
+from board_sizes import RECOGNITION_BOARD_SIZES, SUPPORTED_BOARD_SIZES
 
 pages_bp = Blueprint("pages", __name__)
 
@@ -65,15 +66,18 @@ def api_config():
         "version":             APP_VERSION,
         "default_language":    DEFAULT_LANGUAGE,
         "available_languages": AVAILABLE_LANGUAGES,
+        "supported_board_sizes": list(SUPPORTED_BOARD_SIZES),
         "capabilities": {
             "engine": {
                 "available": _service().is_ready(),
+                "supported_board_sizes": list(SUPPORTED_BOARD_SIZES),
             },
             "recognition": {
                 "enabled": recognition_available,
                 "available": recognition_available,
                 "reason": recognition_reason,
                 "configurable": desktop,
+                "supported_board_sizes": list(RECOGNITION_BOARD_SIZES),
             },
             "desktop": {
                 "bridge": desktop,
@@ -82,6 +86,7 @@ def api_config():
             },
             "live_review": {
                 "available": recognition_available,
+                "supported_board_sizes": list(RECOGNITION_BOARD_SIZES),
             },
         },
     })

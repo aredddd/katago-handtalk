@@ -120,6 +120,14 @@ test("keyboard focus can select an intersection and place a move", () => {
   assert.match(board.canvas.getAttribute("aria-label"), /L10/);
 });
 
+test("resetting the board clears a stale keyboard-coordinate announcement", () => {
+  const board = makeBoard();
+  board.canvas.dispatchEvent({ type: "focus" });
+  assert.match(board.canvas.getAttribute("aria-label"), /K10/);
+  board.resetBoard(9);
+  assert.equal(board.canvas.getAttribute("aria-label"), "Go board");
+});
+
 test("pointer movement cannot make Enter place an invisible keyboard move", () => {
   const board = makeBoard();
   const moves = [];
