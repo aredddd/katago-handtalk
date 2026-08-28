@@ -1,1 +1,1 @@
-"""HTTP route blueprints for the KataGo Web server."""
+"""HTTP route blueprints for the KataGo HandTalk server."""

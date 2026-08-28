@@ -1,5 +1,5 @@
 /**
- * KataGo Web — main application logic
+ * KataGo HandTalk — main application logic
  * WebSocket, beginner game logic, screen review, and i18n
  */
 

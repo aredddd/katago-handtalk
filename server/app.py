@@ -1,5 +1,5 @@
 """
-app.py — entry point for the KataGo Web server.
+app.py — entry point for the KataGo HandTalk server.
 
 The application is assembled by app_factory.create_app(); this module only
 configures logging, builds the app, and (when run directly) starts the KataGo
@@ -25,7 +25,7 @@ app, socketio = create_app()
 
 if __name__ == "__main__":
     print("=" * 60)
-    print("  KataGo Web Server")
+    print("  KataGo HandTalk Server")
     print("=" * 60)
     print(f"  KataGo : {KATAGO_PATH}")
     print(f"  Model  : {MODEL_PATH}")

@@ -56,7 +56,7 @@ def main() -> int:
     vision_warmup = app.extensions.get("board_recognizer_warmup")
 
     print("=" * 62)
-    print("  KataGo Web · 新手本地版")
+    print("  KataGo HandTalk · 手谈")
     print("=" * 62)
     print(f"  地址   : {url}（仅本机可访问）")
     print(f"  KataGo : {KATAGO_PATH}")
